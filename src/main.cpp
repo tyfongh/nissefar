@@ -44,10 +44,12 @@ int main() {
     dpp::guild *current_server = dpp::find_guild(event.msg.guild_id);
     dpp::channel *current_chan = dpp::find_channel(event.msg.channel_id);
     if (current_server && current_chan) {
-      bot.log(dpp::loglevel::ll_info,
-              std::format("Server: {}", current_server->name));
-      bot.log(dpp::loglevel::ll_info,
-              std::format("Channel: {}", current_chan->name));
+      /*
+          bot.log(dpp::loglevel::ll_info,
+                  std::format("Server: {}", current_server->name));
+          bot.log(dpp::loglevel::ll_info,
+                  std::format("Channel: {}", current_chan->name));
+  */
       if ((current_server->name == "tyfon's server" &&
            current_chan->name == "general") ||
           (current_server->name == "Electric Vehicles Enthusiasts" &&
@@ -61,25 +63,23 @@ int main() {
          event.msg.mentions) {
       if (mention.second.user_id.str() == bot.me.id.str() && svar) {
 
+        bot.log(dpp::loglevel::ll_info,
+                std::format("message from {}: {}",
+                            event.msg.author.format_username(),
+                            event.msg.content));
+
         // Bot funnet, lag svar via ollama.
 
-        bot.log(dpp::loglevel::ll_info, "Bot was mentioned");
+        bot.log(dpp::loglevel::ll_info, std::format("Bot was mentioned by {}",
+                                                    event.msg.author.id.str()));
         ollama::request req;
-        req["model"] = "llama3.3:70b-instruct-q4_0";
+        req["model"] = "mistral-small:24b-instruct-2501-q8_0";
         req["system"] = "Your task is to generate a short witty reply to the "
                         "discord message provided.";
         req["prompt"] = event.msg.content;
         event.reply(ollama::generate(req), true);
       }
-      bot.log(dpp::loglevel::ll_info,
-              std::format("User: {}, guild_member: {}, bot id: {}",
-                          mention.first.format_username(),
-                          mention.second.user_id.str(), bot.me.id.str()));
     }
-    // bot.me.get_mention();
-    bot.log(dpp::loglevel::ll_info,
-            std::format("Message from {}: {}",
-                        event.msg.author.format_username(), event.msg.content));
   });
 
   bot.start(dpp::st_wait);
