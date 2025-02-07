@@ -74,8 +74,8 @@ int main() {
         // Lag system prompt
 
         std::string system_prompt = std::format(
-            "your task is to generate a short witty reply to the discord "
-            "message provided. the message is written by user id: <@{}>. the "
+            "Your task is to generate a short witty reply to the discord "
+            "message provided. The message is written by user id: <@{}>. The "
             "user id can be used to tag the author of the message.",
             event.msg.author.id.str());
 
