@@ -10,6 +10,8 @@ add_executable(${PROJECT_NAME}
   src/main.cpp
 )
 
+add_compile_definitions(DPP_CORO=ON)
+
 find_package(DPP REQUIRED)
 
 target_link_libraries(${PROJECT_NAME}

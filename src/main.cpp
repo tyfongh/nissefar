@@ -3,7 +3,9 @@
 #include <dpp/dpp.h>
 #include <dpp/guild.h>
 #include <dpp/intents.h>
+#include <dpp/message.h>
 #include <dpp/misc-enum.h>
+#include <dpp/restresults.h>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -36,7 +38,8 @@ int main() {
 
   // Vi ønsker kun å svare på melding til boten i spesifikke kanaler
 
-  bot.on_message_create([&bot](const dpp::message_create_t &event) {
+  bot.on_message_create([&bot](const dpp::message_create_t &event)
+                            -> dpp::task<void> {
     bool svar = false;
 
     // Hent server og kanal, test mot aksepterte kombinasjoner
@@ -68,21 +71,41 @@ int main() {
                             event.msg.author.format_username(),
                             event.msg.content));
 
+        // Lag system prompt
+
+        std::string system_prompt = std::format(
+            "your task is to generate a short witty reply to the discord "
+            "message provided. the message is written by user id: <@{}>. the "
+            "user id can be used to tag the author of the message.",
+            event.msg.author.id.str());
+
+        // Legg til meldingen det ble svart på dersom denne eksisterer
+        if (event.msg.message_reference.message_id) {
+
+          dpp::confirmation_callback_t result = co_await bot.co_message_get(
+              event.msg.message_reference.message_id, event.msg.channel_id);
+          dpp::message op_message = result.get<dpp::message>();
+          bot.log(dpp::loglevel::ll_info,
+                  std::format("In reply to [{}]: {}",
+                              event.msg.message_reference.message_id.str(),
+                              op_message.content));
+          system_prompt.append(std::format(
+              " The message is a reply to the following message: {}",
+              op_message.content));
+        }
+
         // Bot funnet, lag svar via ollama.
 
         bot.log(dpp::loglevel::ll_info, std::format("Bot was mentioned by {}",
                                                     event.msg.author.id.str()));
         ollama::request req;
         req["model"] = "mistral-small:24b-instruct-2501-q8_0";
-        req["system"] = std::format(
-            "Your task is to generate a short witty reply to the discord "
-            "message provided. The message is written by user id: <@{}>. The "
-            "user id can be used to tag the author of the message.",
-            event.msg.author.id.str());
+        req["system"] = system_prompt;
         req["prompt"] = event.msg.content;
         event.reply(ollama::generate(req), true);
       }
     }
+    co_return;
   });
 
   bot.start(dpp::st_wait);
