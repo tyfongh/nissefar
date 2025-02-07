@@ -74,8 +74,11 @@ int main() {
                                                     event.msg.author.id.str()));
         ollama::request req;
         req["model"] = "mistral-small:24b-instruct-2501-q8_0";
-        req["system"] = "Your task is to generate a short witty reply to the "
-                        "discord message provided.";
+        req["system"] = std::format(
+            "Your task is to generate a short witty reply to the discord "
+            "message provided. The message is written by user id: <@{}>. The "
+            "user id can be used to tag the author of the message.",
+            event.msg.author.id.str());
         req["prompt"] = event.msg.content;
         event.reply(ollama::generate(req), true);
       }
