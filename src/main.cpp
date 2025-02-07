@@ -74,7 +74,8 @@ int main() {
         // Lag system prompt
 
         std::string system_prompt = std::format(
-            "Your task is to generate a short witty reply to the discord "
+            "An electric vehicle specialist that loves EVs. "
+            "Your task is to generate a short reply to the discord "
             "message provided. The message is written by user id: <@{}>. The "
             "user id can be used to tag the author of the message.",
             event.msg.author.id.str());
@@ -90,7 +91,7 @@ int main() {
                               event.msg.message_reference.message_id.str(),
                               op_message.content));
           system_prompt.append(std::format(
-              " The message is a reply to the following message: {}",
+              " This is a previous message from the conversation: {}",
               op_message.content));
         }
 
@@ -99,9 +100,15 @@ int main() {
         bot.log(dpp::loglevel::ll_info, std::format("Bot was mentioned by {}",
                                                     event.msg.author.id.str()));
         ollama::request req;
-        req["model"] = "mistral-small:24b-instruct-2501-q8_0";
+        req["model"] = "llama3.3:70b-instruct-q4_0";
         req["system"] = system_prompt;
-        req["prompt"] = event.msg.content;
+        req["prompt"] = std::format(" This is the message you reply to: {}",
+                                    event.msg.content);
+        try {
+          std::string answer = ollama::generate(req);
+        } catch (ollama::exception e) {
+          event.reply(std::format("Exception running llm: {}", e.what()), true);
+        }
         event.reply(ollama::generate(req), true);
       }
     }
