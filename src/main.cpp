@@ -2,6 +2,7 @@
 #include <format>
 #include <fstream>
 #include <ollama.hpp>
+#include <regex>
 #include <string>
 
 const std::string CONFIG_PATH = "/home/tyfon/.config/nissefar/token.txt";
@@ -50,6 +51,9 @@ int main() {
                             -> dpp::task<void> {
     bool svar = false;
 
+    // Lag en variabel med botens id for fjerning i input-meldinger
+    std::string bot_tag = std::format("<@{}>", bot.me.id.str());
+
     // Hent server og kanal, test mot aksepterte kombinasjoner
 
     dpp::guild *current_server = dpp::find_guild(event.msg.guild_id);
@@ -68,14 +72,16 @@ int main() {
          event.msg.mentions) {
       if (mention.second.user_id == bot.me.id && svar) {
 
-        ollama::images imagelist;
+        // Bot funnet, lag svar via ollama.
 
         // Sjekk om det er noen bilder i meldingen
+        ollama::images imagelist;
 
         for (auto attachment : event.msg.attachments) {
           bot.log(dpp::loglevel::ll_info,
                   std::format("Attachment: {}", attachment.content_type));
-          if (attachment.content_type == "image/jpeg") {
+          if (attachment.content_type == "image/jpeg" ||
+              attachment.content_type == "image/png") {
 
             // Ved treff, last ned, encode til b64 og legg til vector
             dpp::http_request_completion_t attachment_data =
@@ -118,7 +124,8 @@ int main() {
               op_message.content));
         }
 
-        // Bot funnet, lag svar via ollama.
+        // Bytt ut bot id med Nissefar
+        prompt = std::regex_replace(prompt, std::regex(bot_tag), "Nissefar");
 
         bot.log(dpp::loglevel::ll_info, std::format("Bot was mentioned by {}",
                                                     event.msg.author.id.str()));
@@ -128,14 +135,14 @@ int main() {
 
         ollama::request req;
 
+        req["system"] = system_prompt;
+        req["prompt"] = prompt;
+
         if (imagelist.size() > 0) {
           req["model"] = "llama3.2-vision:11b-instruct-q8_0";
           req["images"] = imagelist;
         } else
           req["model"] = "mistral-small:24b-instruct-2501-q4_K_M";
-
-        req["system"] = system_prompt;
-        req["prompt"] = prompt;
 
         std::string answer;
         try {
