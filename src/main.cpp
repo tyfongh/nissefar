@@ -68,6 +68,30 @@ int main() {
          event.msg.mentions) {
       if (mention.second.user_id == bot.me.id && svar) {
 
+        ollama::images imagelist;
+
+        // Sjekk om det er noen bilder i meldingen
+
+        for (auto attachment : event.msg.attachments) {
+          bot.log(dpp::loglevel::ll_info,
+                  std::format("Attachment: {}", attachment.content_type));
+          if (attachment.content_type == "image/jpeg") {
+
+            // Ved treff, last ned, encode til b64 og legg til vector
+            dpp::http_request_completion_t attachment_data =
+                co_await bot.co_request(attachment.url, dpp::m_get);
+            bot.log(dpp::loglevel::ll_info,
+                    std::format("Image size: {}", attachment_data.body.size()));
+            imagelist.push_back(ollama::image(
+                macaron::Base64::Encode(std::string(attachment_data.body))));
+            // llama 3.2 støtter bare ett bilde, bryt ut av loop
+            break;
+          }
+        }
+
+        bot.log(dpp::loglevel::ll_info,
+                std::format("Number of images: {}", imagelist.size()));
+
         bot.log(dpp::loglevel::ll_info,
                 std::format("message from {}: {}",
                             event.msg.author.format_username(),
@@ -100,17 +124,26 @@ int main() {
                                                     event.msg.author.id.str()));
         bot.log(dpp::loglevel::ll_info, std::format("Prompt: {}", prompt));
 
+        // Velg modell basert på om det er bilder eller ikke
+
         ollama::request req;
-        req["model"] = "mistral-small:24b-instruct-2501-q4_K_M";
+
+        if (imagelist.size() > 0) {
+          req["model"] = "llama3.2-vision:11b-instruct-q8_0";
+          req["images"] = imagelist;
+        } else
+          req["model"] = "mistral-small:24b-instruct-2501-q4_K_M";
+
         req["system"] = system_prompt;
         req["prompt"] = prompt;
 
+        std::string answer;
         try {
-          std::string answer = ollama::generate(req);
+          answer = ollama::generate(req);
         } catch (ollama::exception e) {
           event.reply(std::format("Exception running llm: {}", e.what()), true);
         }
-        event.reply(ollama::generate(req), true);
+        event.reply(answer, true);
       }
     }
     co_return;
