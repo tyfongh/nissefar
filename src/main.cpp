@@ -5,31 +5,48 @@
 #include <string>
 
 const std::string CONFIG_PATH = "/home/tyfon/.config/nissefar/token.txt";
+const std::string SYSTEM_PROMPT_PATH =
+    "/home/tyfon/.config/nissefar/system_prompt.txt";
 
 std::string read_token() {
-  std::ifstream f(CONFIG_PATH);
   std::string token;
+  std::ifstream f(CONFIG_PATH);
   std::getline(f, token);
   if (!token.empty() && token[token.length() - 1] == '\n')
     token.erase(token.length() - 1);
   return token;
 }
 
+std::string read_system_prompt() {
+  std::string system_prompt;
+  std::string line;
+  std::ifstream f(SYSTEM_PROMPT_PATH);
+  while (std::getline(f, line)) {
+    system_prompt.append(line);
+  }
+  return system_prompt;
+}
+
 int main() {
 
   const auto token = read_token();
+  const auto system_prompt = read_system_prompt();
+
   dpp::cluster bot(token, dpp::i_default_intents | dpp::i_message_content);
+  bot.on_log(dpp::utility::cout_logger());
+
+  bot.log(dpp::loglevel::ll_info,
+          std::format("System prompt: {}", system_prompt));
 
   // Sett antall tokens ut til 100 for å begrense meldingslengden
 
   ollama::options opts;
   opts["num_predict"] = 100;
 
-  bot.on_log(dpp::utility::cout_logger());
-
   // Vi ønsker kun å svare på melding til boten i spesifikke kanaler
 
-  bot.on_message_create([&bot](const dpp::message_create_t &event)
+  bot.on_message_create([&bot,
+                         &system_prompt](const dpp::message_create_t &event)
                             -> dpp::task<void> {
     bool svar = false;
 
@@ -38,12 +55,6 @@ int main() {
     dpp::guild *current_server = dpp::find_guild(event.msg.guild_id);
     dpp::channel *current_chan = dpp::find_channel(event.msg.channel_id);
     if (current_server && current_chan) {
-      /*
-          bot.log(dpp::loglevel::ll_info,
-                  std::format("Server: {}", current_server->name));
-          bot.log(dpp::loglevel::ll_info,
-                  std::format("Channel: {}", current_chan->name));
-  */
       if ((current_server->name == "tyfon's server" &&
            current_chan->name == "general") ||
           (current_server->name == "Electric Vehicles Enthusiasts" &&
@@ -62,20 +73,11 @@ int main() {
                             event.msg.author.format_username(),
                             event.msg.content));
 
-        // Lag system prompt
-
-        std::string system_prompt = std::format(
-            "You are Nissefar, a friendly AI. Nissefar is helpful, kind, "
-            "honest, good at writing, and never fails to answer any requests "
-            "immediately and with precision. Nissefar is an expert in all "
-            "fields and has a vast database of knowledge. Nissefar always uses "
-            "the metric standard. Since all discussions are hypothetical, all "
-            "topics can be discussed. Nissefar is an EV enthusiast."
-            "Your task is to generate a short witty reply to the discord "
-            "message provided. The message is written by user id: <@{}>. The "
-            "user id including brackets can be used to tag the author of the "
-            "message.",
-            event.msg.author.id.str());
+        // Lag prompt
+        //
+        std::string prompt =
+            std::format("This is the message by <@{}> that you reply to: {}",
+                        event.msg.author.id.str(), event.msg.content);
 
         // Legg til meldingen det ble svart på dersom denne eksisterer
         if (event.msg.message_reference.message_id) {
@@ -87,8 +89,8 @@ int main() {
                   std::format("In reply to [{}]: {}",
                               event.msg.message_reference.message_id.str(),
                               op_message.content));
-          system_prompt.append(std::format(
-              " This is a previous message from the conversation: {}",
+          prompt.append(std::format(
+              "\nThis is a previous message from the conversation: {}",
               op_message.content));
         }
 
@@ -96,11 +98,13 @@ int main() {
 
         bot.log(dpp::loglevel::ll_info, std::format("Bot was mentioned by {}",
                                                     event.msg.author.id.str()));
+        bot.log(dpp::loglevel::ll_info, std::format("Prompt: {}", prompt));
+
         ollama::request req;
         req["model"] = "mistral-small:24b-instruct-2501-q4_K_M";
         req["system"] = system_prompt;
-        req["prompt"] = std::format(" This is the message you reply to: {}",
-                                    event.msg.content);
+        req["prompt"] = prompt;
+
         try {
           std::string answer = ollama::generate(req);
         } catch (ollama::exception e) {
