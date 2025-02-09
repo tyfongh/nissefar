@@ -1,12 +1,4 @@
-#include <dpp/cache.h>
-#include <dpp/dispatcher.h>
 #include <dpp/dpp.h>
-#include <dpp/guild.h>
-#include <dpp/intents.h>
-#include <dpp/message.h>
-#include <dpp/misc-enum.h>
-#include <dpp/restresults.h>
-#include <filesystem>
 #include <format>
 #include <fstream>
 #include <ollama.hpp>
@@ -15,10 +7,9 @@
 const std::string CONFIG_PATH = "/home/tyfon/.config/nissefar/token.txt";
 
 std::string read_token() {
-  std::ifstream f(CONFIG_PATH, std::ios::in | std::ios::binary);
-  const auto filesize = std::filesystem::file_size(CONFIG_PATH);
-  std::string token(filesize, '\0');
-  f.read(token.data(), filesize);
+  std::ifstream f(CONFIG_PATH);
+  std::string token;
+  std::getline(f, token);
   if (!token.empty() && token[token.length() - 1] == '\n')
     token.erase(token.length() - 1);
   return token;
