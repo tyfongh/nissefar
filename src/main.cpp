@@ -3,15 +3,20 @@
 #include <inicpp.h>
 #include <ollama.hpp>
 #include <regex>
+#include <stdlib.h>
 #include <string>
-
-const std::string CONFIG_PATH = "/home/tyfon/.config/nissefar/config";
 
 int main() {
 
+  const char *home = getenv("HOME");
+  if (home == NULL) {
+    std::cout << "Can't get home directory" << std::endl;
+    return -1;
+  }
+
   ini::IniFile config;
   config.setMultiLineValues(true);
-  config.load(CONFIG_PATH);
+  config.load(std::format("{}/.config/nissefar/config", home));
 
   const std::string token = config["General"]["token"].as<std::string>();
   const std::string system_prompt =
@@ -27,10 +32,8 @@ int main() {
   bot.log(dpp::loglevel::ll_info,
           std::format("System prompt: {}", system_prompt));
 
-  // Sett antall tokens ut til 100 for å begrense meldingslengden
-
-  ollama::options opts;
-  opts["num_predict"] = 100;
+  ollama::setReadTimeout(360);
+  ollama::setWriteTimeout(360);
 
   // Vi ønsker kun å svare på melding til boten i spesifikke kanaler
 
@@ -122,9 +125,13 @@ int main() {
         // Velg modell basert på om det er bilder eller ikke
 
         ollama::request req;
+        ollama::options opts;
+
+        opts["num_predict"] = 1000;
 
         req["system"] = system_prompt;
         req["prompt"] = prompt;
+        req["options"] = opts["options"];
 
         if (imagelist.size() > 0) {
           req["model"] = vision_model;
