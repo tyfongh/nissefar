@@ -1,37 +1,25 @@
 #include <dpp/dpp.h>
 #include <format>
-#include <fstream>
+#include <inicpp.h>
 #include <ollama.hpp>
 #include <regex>
 #include <string>
 
-const std::string CONFIG_PATH = "/home/tyfon/.config/nissefar/token.txt";
-const std::string SYSTEM_PROMPT_PATH =
-    "/home/tyfon/.config/nissefar/system_prompt.txt";
-
-std::string read_token() {
-  std::string token;
-  std::ifstream f(CONFIG_PATH);
-  std::getline(f, token);
-  if (!token.empty() && token[token.length() - 1] == '\n')
-    token.erase(token.length() - 1);
-  return token;
-}
-
-std::string read_system_prompt() {
-  std::string system_prompt;
-  std::string line;
-  std::ifstream f(SYSTEM_PROMPT_PATH);
-  while (std::getline(f, line)) {
-    system_prompt.append(line);
-  }
-  return system_prompt;
-}
+const std::string CONFIG_PATH = "/home/tyfon/.config/nissefar/config";
 
 int main() {
 
-  const auto token = read_token();
-  const auto system_prompt = read_system_prompt();
+  ini::IniFile config;
+  config.setMultiLineValues(true);
+  config.load(CONFIG_PATH);
+
+  const std::string token = config["General"]["token"].as<std::string>();
+  const std::string system_prompt =
+      config["General"]["system_prompt"].as<std::string>();
+  const std::string text_model =
+      config["General"]["text_model"].as<std::string>();
+  const std::string vision_model =
+      config["General"]["vision_model"].as<std::string>();
 
   dpp::cluster bot(token, dpp::i_default_intents | dpp::i_message_content);
   bot.on_log(dpp::utility::cout_logger());
@@ -46,8 +34,8 @@ int main() {
 
   // Vi ønsker kun å svare på melding til boten i spesifikke kanaler
 
-  bot.on_message_create([&bot,
-                         &system_prompt](const dpp::message_create_t &event)
+  bot.on_message_create([&bot, &system_prompt, &text_model,
+                         &vision_model](const dpp::message_create_t &event)
                             -> dpp::task<void> {
     bool svar = false;
 
@@ -139,10 +127,10 @@ int main() {
         req["prompt"] = prompt;
 
         if (imagelist.size() > 0) {
-          req["model"] = "llama3.2-vision:11b-instruct-q8_0";
+          req["model"] = vision_model;
           req["images"] = imagelist;
         } else
-          req["model"] = "mistral-small:24b-instruct-2501-q4_K_M";
+          req["model"] = text_model;
 
         std::string answer;
         try {
