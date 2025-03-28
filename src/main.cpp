@@ -7,6 +7,74 @@
 #include <stdlib.h>
 #include <string>
 
+void handle_directory_callback(const dpp::http_request_completion_t &response,
+                               dpp::cluster &bot, bot_config &config,
+                               bool is_setup) {
+
+  bot.log(dpp::ll_info,
+          std::format("json data size: {}", response.body.size()));
+
+  nlohmann::json directory_data = nlohmann::json::parse(response.body.data());
+
+  // Loop over filene og hent ut filnavn og parse tid
+  for (auto filedata : directory_data["files"]) {
+
+    // try to parse the data
+    // 2024-09-19T07:45:19.173Z
+
+    std::string datestring = filedata["modifiedTime"].front();
+    std::string filename = filedata["name"].front();
+    std::string datestringparse =
+        datestring.substr(0, 10) + " " + datestring.substr(12, 8);
+
+    std::chrono::sys_time<std::chrono::milliseconds> tp;
+    std::istringstream ds(datestringparse);
+
+    // Dersom parse er ok, stapp i map for senere bruk
+    ds >> std::chrono::parse("%Y-%m-%d %H:%M:%S", tp);
+    if (ds.fail()) {
+      bot.log(dpp::ll_error, std::format("Error parsing date: {}", ds.str()));
+    } else {
+      if (is_setup) {
+
+        // Her bare lagrer vi initiell tidsdata
+        bot.log(dpp::ll_info, std::format("json test: {}, {}, {}", filename,
+                                          datestring, tp.time_since_epoch()));
+        config.tbfiles[filename] = tp;
+      } else {
+        // Dersom vi skal sjekke filene
+
+        if (config.tbfiles[filename] < tp) {
+          bot.log(dpp::ll_info, std::format("File {} has changed", filename));
+          std::string message_text;
+
+          try {
+            message_text = ollama::generate(
+                config.text_model,
+                std::format("Make short a witty discord comment about that "
+                            "Bjørn just "
+                            "updated the following google shiiiet file: "
+                            "\"{}\".\n Make sure you call it Google "
+                            "Shiiiet "
+                            "instead of Google Sheet",
+                            filename));
+          } catch (ollama::exception &e) {
+            message_text = std::format("Exception running llm: {}. But the "
+                                       "file {} has been updated by Bjørn",
+                                       e.what(), filename);
+          }
+          std::string drive_url = filedata["webViewLink"].front();
+          message_text.append(std::format("\n{}", drive_url));
+          config.tbfiles[filename] = tp;
+          bot.log(dpp::ll_info, std::format("Bot answer: {}", message_text));
+          dpp::message msg(1267731118895927347, message_text);
+          bot.message_create(msg);
+        }
+      }
+    }
+  }
+}
+
 int main() {
 
   // Load configuration from file
@@ -26,104 +94,24 @@ int main() {
   ollama::setWriteTimeout(360);
 
   // Set opp en timer som fyrer av hvert minutt
-  bot.on_ready([&bot, &config](const dpp::ready_t &event) -> dpp::task<void> {
+  bot.on_ready([&bot, &config](const dpp::ready_t &event) {
     // Hent katalogdata fra google drive, initiell setup
-    dpp::http_request_completion_t response =
-        co_await bot.co_request(config.directory_url, dpp::m_get);
-    bot.log(dpp::ll_info,
-            std::format("json data size: {}", response.body.size()));
 
-    nlohmann::json directory_data = nlohmann::json::parse(response.body.data());
-
-    // Loop over filene og hent ut filnavn og parse tid
-    for (auto filedata : directory_data["files"]) {
-
-      // try to parse the data
-      // 2024-09-19T07:45:19.173Z
-
-      std::string datestring = filedata["modifiedTime"].front();
-      std::string filename = filedata["name"].front();
-      std::string datestringparse =
-          datestring.substr(0, 10) + " " + datestring.substr(12, 8);
-
-      std::chrono::sys_time<std::chrono::milliseconds> tp;
-      std::istringstream ds(datestringparse);
-
-      // Dersom parse er ok, stapp i map for senere bruk
-      ds >> std::chrono::parse("%Y-%m-%d %H:%M:%S", tp);
-      if (ds.fail()) {
-        bot.log(dpp::ll_error, std::format("Error parsing date: {}", ds.str()));
-      } else {
-        bot.log(dpp::ll_info, std::format("json test: {}, {}, {}", filename,
-                                          datestring, tp.time_since_epoch()));
-        config.tbfiles[filename] = tp;
-      }
-    }
+    bot.request(config.directory_url, dpp::m_get,
+                std::bind(&handle_directory_callback, std::placeholders::_1,
+                          std::ref(bot), std::ref(config), true));
 
     // Set opp timeren som skal sjekke filer hvert 5. minutt
     bot.start_timer(
         [&bot, &config](const dpp::timer &timer) {
           bot.log(dpp::loglevel::ll_info, std::format("Check files: 300 sec"));
 
-          // Hent katalogdata, denne gangen async med callback lambda
-          bot.request(
-              config.directory_url, dpp::m_get,
-              [&bot, &config](const dpp::http_request_completion_t &response) {
-                bot.log(dpp::ll_info, std::format("json data size: {}",
-                                                  response.body.size()));
-                nlohmann::json directory_data =
-                    nlohmann::json::parse(response.body.data());
-
-                // Loop over fildata og hent ut tid og navn
-                for (auto filedata : directory_data["files"]) {
-                  std::string datestring = filedata["modifiedTime"].front();
-                  std::string filename = filedata["name"].front();
-                  std::string datestringparse =
-                      datestring.substr(0, 10) + " " + datestring.substr(12, 8);
-                  std::chrono::sys_time<std::chrono::milliseconds> tp;
-                  std::istringstream ds(datestringparse);
-
-                  // Dersom datoene parser, sjekk mot map om de har endret seg
-                  // og log / lagre ny tid dersom de er endret
-                  ds >> std::chrono::parse("%Y-%m-%d %H:%M:%S", tp);
-                  if (ds.fail()) {
-                    bot.log(dpp::ll_error,
-                            std::format("Error parsing date: {}", ds.str()));
-                  } else {
-                    if (config.tbfiles[filename] < tp) {
-                      bot.log(dpp::ll_info,
-                              std::format("File {} has changed", filename));
-                      std::string message_text;
-
-                      try {
-                        message_text = ollama::generate(
-                            config.text_model,
-                            std::format(
-                                "Make short a witty discord comment about that "
-                                "Bjørn just "
-                                "updated the following google shiiiet file: "
-                                "\"{}\".\n Make sure you call it Google "
-                                "Shiiiet "
-                                "instead of Google Sheet",
-                                filename));
-                      } catch (ollama::exception &e) {
-                        message_text =
-                            std::format("Exception running llm: {}. But the "
-                                        "file {} has been updated by Bjørn",
-                                        e.what(), filename);
-                      }
-                      std::string drive_url = filedata["webViewLink"].front();
-                      message_text.append(std::format("\n{}", drive_url));
-                      config.tbfiles[filename] = tp;
-                      bot.log(dpp::ll_info,
-                              std::format("Bot answer: {}", message_text));
-                      dpp::message msg(1267731118895927347, message_text);
-                      bot.message_create(msg);
-                    }
-                  }
-                }
-              });
+          bot.request(config.directory_url, dpp::m_get,
+                      std::bind(&handle_directory_callback,
+                                std::placeholders::_1, std::ref(bot),
+                                std::ref(config), false));
         },
+        // 300 sekunder
         300);
   });
 
