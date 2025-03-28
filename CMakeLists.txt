@@ -8,6 +8,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 add_executable(${PROJECT_NAME}
   src/main.cpp
+  src/bot_config.cpp
 )
 
 add_compile_definitions(DPP_CORO=ON)

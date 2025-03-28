@@ -1,3 +1,4 @@
+#include <bot_config.h>
 #include <chrono>
 #include <dpp/dpp.h>
 #include <format>
@@ -8,54 +9,27 @@
 
 int main() {
 
-  const char *home = getenv("HOME");
-  if (home == NULL) {
-    std::cout << "Can't get home directory" << std::endl;
-    return -1;
+  // Load configuration from file
+  bot_config config = bot_config();
+  if (!config.is_valid) {
+    std::cout << "Could not read configuration" << std::endl;
   }
 
-  // Read the configuration parameters from ini file
-  ini::IniFile config;
-  config.setMultiLineValues(true);
-  config.load(std::format("{}/.config/nissefar/config", home));
-
-  const std::string token = config["General"]["token"].as<std::string>();
-  const std::string system_prompt =
-      config["General"]["system_prompt"].as<std::string>();
-  const std::string text_model =
-      config["General"]["text_model"].as<std::string>();
-  const std::string vision_model =
-      config["General"]["vision_model"].as<std::string>();
-  const std::string google_api =
-      config["General"]["google_api"].as<std::string>();
-
-  // Map to store the file metadata for TB test
-
-  std::map<std::string, std::chrono::sys_time<std::chrono::milliseconds>>
-      tbfiles;
-
-  // Create url to fetch file data
-  const std::string directory_url =
-      std::format("https://www.googleapis.com/drive/v3/"
-                  "files?q='1HOwktdiZmm40atGPwymzrxErMi1ZrKPP'+in+parents&"
-                  "key={}&fields=files(id,name,modifiedTime,webViewLink)",
-                  google_api);
-
-  dpp::cluster bot(token, dpp::i_default_intents | dpp::i_message_content);
+  dpp::cluster bot(config.discord_token,
+                   dpp::i_default_intents | dpp::i_message_content);
   bot.on_log(dpp::utility::cout_logger());
 
   bot.log(dpp::loglevel::ll_info,
-          std::format("System prompt: {}", system_prompt));
+          std::format("System prompt: {}", config.system_prompt));
 
   ollama::setReadTimeout(360);
   ollama::setWriteTimeout(360);
 
   // Set opp en timer som fyrer av hvert minutt
-  bot.on_ready([&bot, &directory_url, &text_model,
-                &tbfiles](const dpp::ready_t &event) -> dpp::task<void> {
-    // Hent katalogdata fra google drive, setup pull
+  bot.on_ready([&bot, &config](const dpp::ready_t &event) -> dpp::task<void> {
+    // Hent katalogdata fra google drive, initiell setup
     dpp::http_request_completion_t response =
-        co_await bot.co_request(directory_url, dpp::m_get);
+        co_await bot.co_request(config.directory_url, dpp::m_get);
     bot.log(dpp::ll_info,
             std::format("json data size: {}", response.body.size()));
 
@@ -82,20 +56,19 @@ int main() {
       } else {
         bot.log(dpp::ll_info, std::format("json test: {}, {}, {}", filename,
                                           datestring, tp.time_since_epoch()));
-        tbfiles[filename] = tp;
+        config.tbfiles[filename] = tp;
       }
     }
 
     // Set opp timeren som skal sjekke filer hvert 5. minutt
     bot.start_timer(
-        [&bot, &tbfiles, &directory_url, &text_model](const dpp::timer &timer) {
+        [&bot, &config](const dpp::timer &timer) {
           bot.log(dpp::loglevel::ll_info, std::format("Check files: 300 sec"));
 
           // Hent katalogdata, denne gangen async med callback lambda
           bot.request(
-              directory_url, dpp::m_get,
-              [&tbfiles, &bot,
-               &text_model](const dpp::http_request_completion_t &response) {
+              config.directory_url, dpp::m_get,
+              [&bot, &config](const dpp::http_request_completion_t &response) {
                 bot.log(dpp::ll_info, std::format("json data size: {}",
                                                   response.body.size()));
                 nlohmann::json directory_data =
@@ -117,17 +90,21 @@ int main() {
                     bot.log(dpp::ll_error,
                             std::format("Error parsing date: {}", ds.str()));
                   } else {
-                    if (tbfiles[filename] < tp) {
+                    if (config.tbfiles[filename] < tp) {
                       bot.log(dpp::ll_info,
                               std::format("File {} has changed", filename));
                       std::string message_text;
 
                       try {
                         message_text = ollama::generate(
-                            text_model,
+                            config.text_model,
                             std::format(
-                                "Make a witty comment about that Bjørn just "
-                                "updated the following google shiiiet file: {}",
+                                "Make short a witty discord comment about that "
+                                "Bjørn just "
+                                "updated the following google shiiiet file: "
+                                "\"{}\".\n Make sure you call it Google "
+                                "Shiiiet "
+                                "instead of Google Sheet",
                                 filename));
                       } catch (ollama::exception &e) {
                         message_text =
@@ -137,7 +114,7 @@ int main() {
                       }
                       std::string drive_url = filedata["webViewLink"].front();
                       message_text.append(std::format("\n{}", drive_url));
-                      tbfiles[filename] = tp;
+                      config.tbfiles[filename] = tp;
                       bot.log(dpp::ll_info,
                               std::format("Bot answer: {}", message_text));
                       dpp::message msg(1267731118895927347, message_text);
@@ -152,8 +129,7 @@ int main() {
 
   // Vi ønsker kun å svare på melding til boten i spesifikke kanaler
 
-  bot.on_message_create([&bot, &system_prompt, &text_model,
-                         &vision_model](const dpp::message_create_t &event)
+  bot.on_message_create([&bot, &config](const dpp::message_create_t &event)
                             -> dpp::task<void> {
     bool svar = false;
 
@@ -197,7 +173,7 @@ int main() {
             imagelist.push_back(ollama::image(
                 macaron::Base64::Encode(std::string(attachment_data.body))));
             // llama 3.2 støtter bare ett bilde, bryt ut av loop
-            break;
+            // break;
           }
         }
 
@@ -244,15 +220,15 @@ int main() {
 
         opts["num_predict"] = 1000;
 
-        req["system"] = system_prompt;
+        req["system"] = config.system_prompt;
         req["prompt"] = prompt;
         req["options"] = opts["options"];
 
         if (imagelist.size() > 0) {
-          req["model"] = vision_model;
+          req["model"] = config.vision_model;
           req["images"] = imagelist;
         } else
-          req["model"] = text_model;
+          req["model"] = config.text_model;
 
         std::string answer;
         try {
