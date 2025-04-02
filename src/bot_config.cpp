@@ -21,13 +21,16 @@ bot_config::bot_config() {
   discord_token = config["General"]["discord_token"].as<std::string>();
   system_prompt = config["General"]["system_prompt"].as<std::string>();
   text_model = config["General"]["text_model"].as<std::string>();
+  comparison_model = config["General"]["comparison_model"].as<std::string>();
   vision_model = config["General"]["vision_model"].as<std::string>();
   google_api_key = config["General"]["google_api_key"].as<std::string>();
 
-  directory_url =
-      std::format("https://www.googleapis.com/drive/v3/"
-                  "files?q='1HOwktdiZmm40atGPwymzrxErMi1ZrKPP'+in+parents&key={"
-                  "}&fields=files(id,name,modifiedTime,webViewLink)",
-                  google_api_key);
+  directory_url = std::format("https://www.googleapis.com/drive/v3/"
+                              "files?q='1HOwktdiZmm40atGPwymzrxErMi1ZrKPP'+in+"
+                              "parents&key={}&fields=files("
+                              "id,name,modifiedTime,webViewLink,exportLinks)",
+                              google_api_key);
+
+  timer_is_running = false;
   is_valid = true;
 }

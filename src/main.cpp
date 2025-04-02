@@ -7,6 +7,197 @@
 #include <stdlib.h>
 #include <string>
 
+// Execute diff command on two files
+/*
+std::string diff(std::string oldfile, std::string newfile) {
+  std::array<char, 128> buffer;
+  std::string result;
+
+  std::unique_ptr<FILE, void (*)(FILE *)> pipe(
+      popen(std::format("diff -u {} {}", oldfile, newfile).c_str(), "r"),
+      [](FILE *f) -> void { std::ignore = pclose(f); });
+  if (!pipe)
+    return std::string("Kunne ikke kjøre diff pipe");
+
+  while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) !=
+         nullptr)
+    result += buffer.data();
+  return result;
+}
+
+*/
+
+// Prosess CSV-filer, kan brukes recursive ved redirect
+void handle_csv_callback(const dpp::http_request_completion_t &response,
+                         dpp::cluster &bot, bot_config &config, int sheet_id,
+                         std::string filename, bool is_setup,
+                         const std::string weblink) {
+
+  // Google redicreter oss til nytt sted, hent ny fill og kall recursive.
+  if (response.status == 307) {
+    bot.log(dpp::ll_info,
+            std::format("Redirecting to: {}",
+                        response.headers.find("location")->second));
+    bot.request(response.headers.find("location")->second, dpp::m_get,
+                std::bind(&handle_csv_callback, std::placeholders::_1,
+                          std::ref(bot), std::ref(config), sheet_id, filename,
+                          is_setup, weblink));
+  } else if (response.status == 200) { // Response er 200
+
+    bot.log(dpp::ll_info,
+            std::format("Response status id for file: {}, sheet id {}: {}",
+                        filename, sheet_id, response.status));
+
+    // Første kjøring -> lagre data
+
+    if (is_setup) {
+      config.sheets_data[sheet_id] = std::format("{}\n", response.body.data());
+
+      bot.log(dpp::ll_info,
+              std::format("Adding setup data for {}, sheet id: {}", filename,
+                          sheet_id));
+      // Debug, add data
+
+    } else { // Sjekk data mot eksisterende
+      bot.log(dpp::ll_info, std::format("Checking data for {}, sheet id: {}. "
+                                        "Old data size: {}, new data size: {}",
+                                        filename, sheet_id,
+                                        config.sheets_data[sheet_id].size(),
+                                        response.body.size()));
+      if (std::format("{}\n", response.body.data()) !=
+          config.sheets_data[sheet_id]) {
+        /*
+                // Det er en forskjell, finn ut hva
+                std::string tempfiledir =
+           std::filesystem::temp_directory_path(); std::string oldtempfile =
+                    std::format("{}/nisseold{}", tempfiledir, sheet_id);
+
+                std::string newtempfile =
+                    std::format("{}/nissenew{}", tempfiledir, sheet_id);
+
+                std::ofstream oldfile(oldtempfile);
+                if (oldfile.is_open()) {
+                  oldfile << config.sheets_data[sheet_id];
+                  oldfile.flush();
+                }
+
+                std::string newdata =
+                    std::string(response.body.data()) + "\nTesla Roadster
+           V2,30,5";
+
+                std::ofstream newfile(newtempfile);
+                if (newfile.is_open()) {
+                  newfile << newdata;
+                  newfile.flush();
+                }
+
+                std::string changes = diff(oldtempfile, newtempfile);
+
+                //        std::filesystem::remove(oldtempfile);
+                //        std::filesystem::remove(newtempfile);
+
+                bot.log(dpp::ll_info, std::format("Diff:\n{}", changes));
+
+                std::string prompt = std::format(
+                    "The sheet {} inside the file {} has changed. "
+                    "The format of the file is CSV. "
+                    "The result of the diff commands between the files are
+           between the " "lines:\n--------\n{}\n--------\n" "Explain what has
+           changed between the files as a brief discord " "message. " "Only
+           write the discord message itself and " "nothing else. Never give
+           alternative messages.", filename == "Charging curves" ?
+           config.charge_curve_sheets.at(sheet_id) :
+           config.tb_test_sheets.at(sheet_id), filename, changes);
+
+                    */
+
+        ollama::options lo;
+        lo["num_ctx"] = 8192;
+
+        std::string prompt =
+            std::format("The sheet {} inside the file {} has changed. "
+                        "The format of the file is CSV. "
+                        "The old file is between the following "
+                        "lines:\n--------\n{}\n--------\n"
+                        "The new file is between the following "
+                        "lines:\n--------\n{}\n--------\n"
+                        "Explain what has changed between the files as a brief "
+                        "discord message. "
+                        "Only write the discord message itself and "
+                        "nothing else. Never give alternative messages.",
+                        filename == "Charging curves"
+                            ? config.charge_curve_sheets.at(sheet_id)
+                            : config.tb_test_sheets.at(sheet_id),
+                        filename, config.sheets_data[sheet_id],
+                        std::string(response.body.data()));
+
+        bot.log(dpp::ll_info, std::format("Change prompt: {}", prompt));
+
+        std::string message_text;
+
+        try {
+          message_text = ollama::generate(config.comparison_model, prompt, lo);
+        } catch (ollama::exception &e) {
+          message_text = std::format("Exception running llm: {}. But the "
+                                     "file {} has been updated by Bjørn",
+                                     e.what(), filename);
+        }
+        message_text.append(std::format("\n{}", weblink));
+        bot.log(dpp::ll_info, std::format("Bot answer: {}", message_text));
+
+        dpp::message msg(1267731118895927347, message_text);
+        bot.message_create(msg);
+
+        /*
+
+                std::string message_text =
+                    std::format("The sheet \"{}\" inside \"{}\" has changed",
+                                filename == "Charging curves"
+                                    ? config.charge_curve_sheets.at(sheet_id)
+                                    : config.tb_test_sheets.at(sheet_id),
+                                filename);
+
+
+        dpp::message msg(1267731118895927347, message_text);
+        bot.message_create(msg);
+        bot.log(dpp::ll_info,
+                std::format("Message text changed {}", message_text));
+        */
+        config.sheets_data[sheet_id] =
+            std::format("{}\n", response.body.data());
+      }
+    }
+  } else {
+    bot.log(dpp::ll_error, std::format("Http returned unexpected status: {}",
+                                       response.status));
+  }
+}
+
+void get_tb_test_data(dpp::cluster &bot, bot_config &config, bool is_setup,
+                      const std::string tb_test_sheet_id,
+                      const std::string filename, const std::string weblink) {
+
+  bot.log(dpp::ll_info,
+          std::format("Testing file {}, is_setup: {}, tb_test_sheet_id: {}",
+                      filename, is_setup, tb_test_sheet_id));
+
+  for (const auto &[sheet_id, sheet_name] : filename == "Charging curves"
+                                                ? config.charge_curve_sheets
+                                                : config.tb_test_sheets) {
+    {
+      std::string sheet_url =
+          std::format("https://docs.google.com/spreadsheets/d/{}/"
+                      "export?format=csv&gid={}",
+                      tb_test_sheet_id, sheet_id);
+
+      bot.request(sheet_url, dpp::m_get,
+                  std::bind(&handle_csv_callback, std::placeholders::_1,
+                            std::ref(bot), std::ref(config), sheet_id, filename,
+                            is_setup, weblink));
+    }
+  }
+}
+
 void handle_directory_callback(const dpp::http_request_completion_t &response,
                                dpp::cluster &bot, bot_config &config,
                                bool is_setup) {
@@ -40,35 +231,26 @@ void handle_directory_callback(const dpp::http_request_completion_t &response,
         // Her bare lagrer vi initiell tidsdata
         bot.log(dpp::ll_info, std::format("json test: {}, {}, {}", filename,
                                           datestring, tp.time_since_epoch()));
+        // Uncomment for test
+        //        if (filedata["name"] == "TB test results")
+        //          tp -= std::chrono::minutes(1);
         config.tbfiles[filename] = tp;
+
+        if (filedata["name"] == "TB test results" ||
+            filedata["name"] == "Charging curves")
+          get_tb_test_data(bot, config, is_setup, filedata["id"].front(),
+                           filedata["name"], filedata["webViewLink"].front());
+
       } else {
         // Dersom vi skal sjekke filene
 
         if (config.tbfiles[filename] < tp) {
           bot.log(dpp::ll_info, std::format("File {} has changed", filename));
-          std::string message_text;
-
-          try {
-            message_text = ollama::generate(
-                config.text_model,
-                std::format("Make short a witty discord comment about that "
-                            "Bjørn just "
-                            "updated the following google shiiiet file: "
-                            "\"{}\".\n Make sure you call it Google "
-                            "Shiiiet "
-                            "instead of Google Sheet",
-                            filename));
-          } catch (ollama::exception &e) {
-            message_text = std::format("Exception running llm: {}. But the "
-                                       "file {} has been updated by Bjørn",
-                                       e.what(), filename);
-          }
-          std::string drive_url = filedata["webViewLink"].front();
-          message_text.append(std::format("\n{}", drive_url));
-          config.tbfiles[filename] = tp;
-          bot.log(dpp::ll_info, std::format("Bot answer: {}", message_text));
-          dpp::message msg(1267731118895927347, message_text);
-          bot.message_create(msg);
+          if (filedata["name"] == "TB test results" ||
+              filedata["name"] == "Charging curves")
+            config.tbfiles[filename] = tp;
+          get_tb_test_data(bot, config, is_setup, filedata["id"].front(),
+                           filedata["name"], filedata["webViewLink"].front());
         }
       }
     }
@@ -97,6 +279,11 @@ int main() {
   bot.on_ready([&bot, &config](const dpp::ready_t &event) {
     // Hent katalogdata fra google drive, initiell setup
 
+    if (config.timer_is_running) {
+      bot.log(dpp::ll_debug, "Tried to add timer when already active");
+      return;
+    }
+
     bot.request(config.directory_url, dpp::m_get,
                 std::bind(&handle_directory_callback, std::placeholders::_1,
                           std::ref(bot), std::ref(config), true));
@@ -110,6 +297,7 @@ int main() {
                       std::bind(&handle_directory_callback,
                                 std::placeholders::_1, std::ref(bot),
                                 std::ref(config), false));
+          config.timer_is_running = true;
         },
         // 300 sekunder
         300);
