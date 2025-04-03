@@ -248,9 +248,9 @@ void handle_directory_callback(const dpp::http_request_completion_t &response,
           bot.log(dpp::ll_info, std::format("File {} has changed", filename));
           if (filedata["name"] == "TB test results" ||
               filedata["name"] == "Charging curves")
-            config.tbfiles[filename] = tp;
-          get_tb_test_data(bot, config, is_setup, filedata["id"].front(),
-                           filedata["name"], filedata["webViewLink"].front());
+            get_tb_test_data(bot, config, is_setup, filedata["id"].front(),
+                             filedata["name"], filedata["webViewLink"].front());
+          config.tbfiles[filename] = tp;
         }
       }
     }
