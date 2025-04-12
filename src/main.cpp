@@ -8,7 +8,6 @@
 #include <string>
 
 // Execute diff command on two files
-/*
 std::string diff(std::string oldfile, std::string newfile) {
   std::array<char, 128> buffer;
   std::string result;
@@ -24,8 +23,6 @@ std::string diff(std::string oldfile, std::string newfile) {
     result += buffer.data();
   return result;
 }
-
-*/
 
 // Prosess CSV-filer, kan brukes recursive ved redirect
 void handle_csv_callback(const dpp::http_request_completion_t &response,
@@ -66,72 +63,53 @@ void handle_csv_callback(const dpp::http_request_completion_t &response,
                                         response.body.size()));
       if (std::format("{}\n", response.body.data()) !=
           config.sheets_data[sheet_id]) {
-        /*
-                // Det er en forskjell, finn ut hva
-                std::string tempfiledir =
-           std::filesystem::temp_directory_path(); std::string oldtempfile =
-                    std::format("{}/nisseold{}", tempfiledir, sheet_id);
+        // Det er en forskjell, finn ut hva
+        std::string tempfiledir = std::filesystem::temp_directory_path();
+        std::string oldtempfile =
+            std::format("{}/nisseold{}", tempfiledir, sheet_id);
 
-                std::string newtempfile =
-                    std::format("{}/nissenew{}", tempfiledir, sheet_id);
+        std::string newtempfile =
+            std::format("{}/nissenew{}", tempfiledir, sheet_id);
 
-                std::ofstream oldfile(oldtempfile);
-                if (oldfile.is_open()) {
-                  oldfile << config.sheets_data[sheet_id];
-                  oldfile.flush();
-                }
+        std::ofstream oldfile(oldtempfile);
+        if (oldfile.is_open()) {
+          oldfile << config.sheets_data[sheet_id];
+          oldfile.flush();
+        }
 
-                std::string newdata =
-                    std::string(response.body.data()) + "\nTesla Roadster
-           V2,30,5";
+        std::string newdata = std::string(response.body.data());
 
-                std::ofstream newfile(newtempfile);
-                if (newfile.is_open()) {
-                  newfile << newdata;
-                  newfile.flush();
-                }
+        std::ofstream newfile(newtempfile);
+        if (newfile.is_open()) {
+          newfile << newdata;
+          newfile.flush();
+        }
 
-                std::string changes = diff(oldtempfile, newtempfile);
+        std::string changes = diff(oldtempfile, newtempfile);
 
-                //        std::filesystem::remove(oldtempfile);
-                //        std::filesystem::remove(newtempfile);
+        std::filesystem::remove(oldtempfile);
+        std::filesystem::remove(newtempfile);
 
-                bot.log(dpp::ll_info, std::format("Diff:\n{}", changes));
+        bot.log(dpp::ll_info, std::format("Diff:\n{}", changes));
 
-                std::string prompt = std::format(
-                    "The sheet {} inside the file {} has changed. "
-                    "The format of the file is CSV. "
-                    "The result of the diff commands between the files are
-           between the " "lines:\n--------\n{}\n--------\n" "Explain what has
-           changed between the files as a brief discord " "message. " "Only
-           write the discord message itself and " "nothing else. Never give
-           alternative messages.", filename == "Charging curves" ?
-           config.charge_curve_sheets.at(sheet_id) :
-           config.tb_test_sheets.at(sheet_id), filename, changes);
-
-                    */
+        std::string prompt = std::format(
+            "The sheet \"{}\" in the CSV file \"{}\" has changed.\n Below is "
+            "the unified diff:\n--------\n{}\n--------\nPlease provide a "
+            "single, brief Discord message explaining the changes. Since the "
+            "CSV is an extract from Google Sheets, always refer to these as "
+            "\"Google Shieeets.\" Write only the final Discord message, and do "
+            "not provide any alternative messages or extra text.",
+            (filename == "Charging curves")
+                ? config.charge_curve_sheets.at(sheet_id)
+                : config.tb_test_sheets.at(sheet_id),
+            filename, changes);
 
         ollama::options lo;
         lo["num_ctx"] = 8192;
-
-        std::string prompt =
-            std::format("The sheet {} inside the file {} has changed. "
-                        "The format of the file is CSV. "
-                        "The old file is between the following "
-                        "lines:\n--------\n{}\n--------\n"
-                        "The new file is between the following "
-                        "lines:\n--------\n{}\n--------\n"
-                        "Explain what has changed between the files as a brief "
-                        "discord message. "
-                        "Only write the discord message itself and "
-                        "nothing else. Never give alternative messages.",
-                        filename == "Charging curves"
-                            ? config.charge_curve_sheets.at(sheet_id)
-                            : config.tb_test_sheets.at(sheet_id),
-                        filename, config.sheets_data[sheet_id],
-                        std::string(response.body.data()));
-
-        bot.log(dpp::ll_info, std::format("Change prompt: {}", prompt));
+        lo["temperature"] = 1;
+        lo["top_k"] = 64;
+        lo["top_p"] = 0.95;
+        lo["min_p"] = 0;
 
         std::string message_text;
 
@@ -148,21 +126,6 @@ void handle_csv_callback(const dpp::http_request_completion_t &response,
         dpp::message msg(1267731118895927347, message_text);
         bot.message_create(msg);
 
-        /*
-
-                std::string message_text =
-                    std::format("The sheet \"{}\" inside \"{}\" has changed",
-                                filename == "Charging curves"
-                                    ? config.charge_curve_sheets.at(sheet_id)
-                                    : config.tb_test_sheets.at(sheet_id),
-                                filename);
-
-
-        dpp::message msg(1267731118895927347, message_text);
-        bot.message_create(msg);
-        bot.log(dpp::ll_info,
-                std::format("Message text changed {}", message_text));
-        */
         config.sheets_data[sheet_id] =
             std::format("{}\n", response.body.data());
       }
@@ -395,6 +358,10 @@ int main() {
         ollama::options opts;
 
         opts["num_predict"] = 1000;
+        opts["temperature"] = 1;
+        opts["top_k"] = 64;
+        opts["top_p"] = 0.95;
+        opts["min_p"] = 0;
 
         req["system"] = config.system_prompt;
         req["prompt"] = prompt;
