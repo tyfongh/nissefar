@@ -8,7 +8,8 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 add_executable(${PROJECT_NAME}
   src/main.cpp
-  src/bot_config.cpp
+  src/Nissefar.cpp
+  src/Config.cpp
 )
 
 add_compile_definitions(DPP_CORO=ON)
@@ -17,6 +18,7 @@ find_package(DPP REQUIRED)
 
 target_link_libraries(${PROJECT_NAME}
   ${DPP_LIBRARIES}
+  /usr/lib/libdpp.so
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
