@@ -4,10 +4,11 @@
 #include <config.h>
 #include <deque>
 #include <dpp/dpp.h>
-#include <dpp/snowflake.h>
 #include <unordered_map>
 
 struct Message {
+  const dpp::snowflake msg_id;
+  const dpp::snowflake msg_replied_to;
   const std::string content;
   const dpp::snowflake author;
 };
@@ -24,6 +25,9 @@ public:
   dpp::task<void> handle_message(const dpp::message_create_t &event);
   void add_channel_message(dpp::snowflake channel_id, const Message &msg);
   const std::deque<Message>& get_channel_history(dpp::snowflake channel_id) const;
+  std::string format_message_history(dpp::snowflake channel_id);
+  std::string format_replyto_message(const Message &msg);
+  std::string generate_reply(const std::string &prompt);
 };
 
 #endif // NISSEFAR_H
