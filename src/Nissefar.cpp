@@ -10,6 +10,10 @@ Nissefar::Nissefar() {
       config.discord_token, dpp::i_default_intents | dpp::i_message_content);
 
   bot->on_log(dpp::utility::cout_logger());
+
+  ollama::setReadTimeout(360);
+  ollama::setWriteTimeout(360);
+
   bot->log(dpp::ll_info, "Bot initialized");
 }
 
@@ -32,17 +36,38 @@ Nissefar::get_channel_history(dpp::snowflake channel_id) const {
 
 std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
   std::string message_history{};
+  auto msgs = get_channel_history(channel_id);
+  if (msgs.size() > 0)
+    message_history = std::string("Channel message history:");
   for (auto msg : get_channel_history(channel_id)) {
-    message_history +=
-        std::format("Channel message history:\n----------------------\nmessage "
-                    "id: {}\nreply to message "
-                    "id: {}\nauthor: {}\nmessage content:{}",
-                    msg.msg_id.str(), msg.msg_replied_to.str(),
-                    msg.author.str(), msg.content);
+    message_history += std::format("\n----------------------\n"
+                                   "Message id: {}\n"
+                                   "Reply to message id: {}\n"
+                                   "Author: {}\n"
+                                   "Message content:{}",
+                                   msg.msg_id.str(), msg.msg_replied_to.str(),
+                                   msg.author.str(), msg.content);
   }
   if (!message_history.empty())
     message_history += "\n----------------------";
   return message_history;
+}
+
+dpp::task<ollama::images>
+Nissefar::generate_images(std::vector<dpp::attachment> attachments) {
+  ollama::images imagelist;
+  for (auto attachment : attachments) {
+    if (attachment.content_type == "image/jpeg" ||
+        attachment.content_type == "image/png") {
+      dpp::http_request_completion_t attachment_data =
+          co_await bot->co_request(attachment.url, dpp::m_get);
+      bot->log(dpp::ll_info,
+               std::format("Image size: {}", attachment_data.body.size()));
+      imagelist.push_back(ollama::image(
+          macaron::Base64::Encode(std::string(attachment_data.body))));
+    }
+  }
+  co_return imagelist;
 }
 
 std::string Nissefar::format_replyto_message(const Message &msg) {
@@ -56,7 +81,8 @@ std::string Nissefar::format_replyto_message(const Message &msg) {
   return message_text;
 }
 
-std::string Nissefar::generate_reply(const std::string &prompt) {
+std::string Nissefar::generate_reply(const std::string &prompt,
+                                     const ollama::images &imagelist) {
   ollama::request req;
   ollama::options opts;
 
@@ -69,7 +95,12 @@ std::string Nissefar::generate_reply(const std::string &prompt) {
   req["system"] = config.system_prompt;
   req["prompt"] = prompt;
   req["options"] = opts["options"];
-  req["model"] = config.text_model;
+
+  if (imagelist.size() > 0) {
+    req["model"] = config.vision_model;
+    req["images"] = imagelist;
+  } else
+    req["model"] = config.text_model;
 
   std::string answer{};
   try {
@@ -108,9 +139,13 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
                          format_message_history(event.msg.channel_id) +
                          format_replyto_message(last_message);
 
-    bot->log(dpp::ll_info, prompt);
+    auto imagelist = co_await generate_images(event.msg.attachments);
 
-    event.reply(generate_reply(prompt), true);
+    bot->log(dpp::ll_info, prompt);
+    bot->log(dpp::ll_info,
+             std::format("Number of images: {}", imagelist.size()));
+
+    event.reply(generate_reply(prompt, imagelist), true);
   }
 
   add_channel_message(event.msg.channel_id, last_message);
