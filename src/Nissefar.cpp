@@ -135,9 +135,11 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
                        event.msg.content, event.msg.author.id};
 
   if (answer) {
-    std::string prompt = std::format("\nBot user id: {}\n", bot->me.id.str()) +
-                         format_message_history(event.msg.channel_id) +
-                         format_replyto_message(last_message);
+    std::string prompt =
+        std::format("\nBot user id: {}\n", bot->me.id.str()) +
+        std::format("Channel name: \"{}\"\n", current_chan->name) +
+        format_message_history(event.msg.channel_id) +
+        format_replyto_message(last_message);
 
     auto imagelist = co_await generate_images(event.msg.attachments);
 
