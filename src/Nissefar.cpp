@@ -1,4 +1,5 @@
 #include <Nissefar.h>
+#include <sstream>
 #include <stdexcept>
 
 Nissefar::Nissefar() {
@@ -268,10 +269,17 @@ dpp::task<void> Nissefar::process_sheets(const std::string filename,
               std::format("{}\n", sheet_resp.body.data())) {
             bot->log(dpp::ll_info,
                      std::format("The sheet \"{}\" has changed", sheet_name));
+
+            // Extract the CSV header of the file
             auto newdata = std::format("{}\n", sheet_resp.body.data());
+
+            std::istringstream nds(newdata);
+            std::string header{};
+            std::getline(nds, header);
+
             sheet_diffs[filename][sheet_id] = Diffdata{
                 diff(sheet_data[filename][sheet_id], newdata, sheet_id),
-                weblink};
+                weblink, header};
             sheet_data[filename][sheet_id] = newdata;
           }
         }
@@ -293,9 +301,9 @@ dpp::task<void> Nissefar::process_sheets(const std::string filename,
 void Nissefar::process_diffs() {
   for (auto &[filename, diffmap] : sheet_diffs) {
     for (auto &[sheet_id, diffdata] : diffmap) {
-      auto prompt =
-          std::format("Filename: {}\nSheet name:{}\nDiff:\n{}", filename,
-                      sheet_names[filename][sheet_id], diffdata.diffdata);
+      auto prompt = std::format(
+          "Filename: {}\nSheet name: {}\nCSV Header: {}\nDiff:\n{}", filename,
+          sheet_names[filename][sheet_id], diffdata.header, diffdata.diffdata);
       auto answer = generate_reply(prompt, ollama::images{}, true);
       answer += std::format("\n{}", diffdata.weblink);
       dpp::message msg(1267731118895927347, answer);
@@ -319,6 +327,8 @@ dpp::task<void> Nissefar::process_google_docs() {
   for (auto filedata : directory_data["files"]) {
     std::string datestring = filedata["modifiedTime"].front();
     std::string filename = filedata["name"].front();
+    if (filename != "TB test results" && filename != "Charging curves")
+      break;
     std::string datestringparse =
         datestring.substr(0, 10) + " " + datestring.substr(12, 8);
     const std::string file_id = filedata["id"].front();
@@ -338,23 +348,24 @@ dpp::task<void> Nissefar::process_google_docs() {
           std::chrono::milliseconds(0)) {
         bot->log(dpp::ll_info, std::format("New entry: {}", filename));
         timestamps[filename] = tp;
-        if (filename == "TB test results" || filename == "Charging curves")
-          co_await process_sheets(filename, file_id, weblink);
-        /* Add this to test
+        co_await process_sheets(filename, file_id, weblink);
+
+        /* Uncomment for test
         if (filename == "TB test results") {
           timestamps[filename] -= std::chrono::minutes(1);
-          sheet_data[filename][0] += std::string("Model Z,25,25\n");
+          sheet_data[filename][26964202] += std::string(
+              "Mercedes Superexpensive,06.11.2022,Wet,3,Nokian R3,Winter,265 / "
+              "40 - 21,265 / 40 - 21,\"54,17\",\"3,96\",2800\n");
         }
         */
 
       } else {
-        if (timestamps[filename] < tp) {
+        if (timestamps[filename] != tp) {
           timestamps[filename] = tp;
           bot->log(dpp::ll_info, std::format("File {} has changed", filename));
           // Need to limit to "known" sheets or it will keep adding blank id's
           // to the map and fail
-          if (filename == "TB test results" || filename == "Charging curves")
-            co_await process_sheets(filename, file_id, weblink);
+          co_await process_sheets(filename, file_id, weblink);
           process_diffs();
         }
       }

@@ -19,6 +19,7 @@ struct Message {
 struct Diffdata {
   std::string diffdata;
   std::string weblink;
+  std::string header;
 };
 
 class Nissefar {
@@ -46,6 +47,7 @@ public:
                                  std::string weblink);
   std::string diff(const std::string olddata, const std::string newdata,
                    const int sheet_id);
+
 
   void process_diffs();
 

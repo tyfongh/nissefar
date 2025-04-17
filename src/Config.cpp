@@ -13,7 +13,7 @@ Config::Config()
 
         ini::IniFile ini;
         ini.setMultiLineValues(true);
-        ini.load(std::format("{}/.config/nissefar/config.test.ini", home));
+        ini.load(std::format("{}/.config/nissefar/config.ini", home));
 
         bool valid = true;
 
