@@ -14,6 +14,7 @@ struct Message {
   const dpp::snowflake msg_replied_to;
   const std::string content;
   const dpp::snowflake author;
+  const std::vector<std::string> image_descriptions;
 };
 
 struct Diffdata {
@@ -30,6 +31,14 @@ private:
 
 public:
   Nissefar();
+  // Message reply type
+
+  enum class GenerationType {
+    TextReply,
+    Diff,
+    ImageDescription
+  };
+
   void run();
   dpp::task<void> handle_message(const dpp::message_create_t &event);
   void add_channel_message(dpp::snowflake channel_id, const Message &msg);
@@ -37,8 +46,8 @@ public:
   get_channel_history(dpp::snowflake channel_id) const;
   std::string format_message_history(dpp::snowflake channel_id);
   std::string format_replyto_message(const Message &msg);
-  std::string generate_reply(const std::string &prompt,
-                             const ollama::images &imagelist, bool is_diff);
+  std::string generate_text(const std::string &prompt,
+                             const ollama::images &imagelist, const GenerationType gen_type);
   dpp::task<ollama::images>
   generate_images(std::vector<dpp::attachment> attachments);
   dpp::task<void> process_google_docs();
@@ -78,5 +87,6 @@ public:
         {478179452, "Arctic Circle"},
         {1066718131, "Bangkok"}}},
       {"Charging curves", {{1593904708, "Charging curve"}}}};
+
 };
 #endif // NISSEFAR_H

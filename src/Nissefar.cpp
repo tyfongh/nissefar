@@ -1,5 +1,6 @@
 #include <Nissefar.h>
 #include <ctime>
+#include <dpp/misc-enum.h>
 #include <sstream>
 #include <stdexcept>
 
@@ -50,13 +51,20 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
   if (msgs.size() > 0)
     message_history = std::string("Channel message history:");
   for (auto msg : get_channel_history(channel_id)) {
+    std::string image_descs{};
+    int i = 0;
+    for (auto image_desc : msg.image_descriptions) {
+      i++;
+      image_descs.append(std::format("\nImage {}: {}", i, image_desc));
+    }
+
     message_history += std::format("\n----------------------\n"
                                    "Message id: {}\n"
                                    "Reply to message id: {}\n"
                                    "Author: {}\n"
-                                   "Message content:{}",
+                                   "Message content:{}{}",
                                    msg.msg_id.str(), msg.msg_replied_to.str(),
-                                   msg.author.str(), msg.content);
+                                   msg.author.str(), msg.content, image_descs);
   }
   if (!message_history.empty())
     message_history += "\n----------------------";
@@ -98,9 +106,9 @@ std::string Nissefar::format_replyto_message(const Message &msg) {
 
 // The function to generate the LLM text
 
-std::string Nissefar::generate_reply(const std::string &prompt,
-                                     const ollama::images &imagelist,
-                                     bool is_diff) {
+std::string Nissefar::generate_text(const std::string &prompt,
+                                    const ollama::images &imagelist,
+                                    const GenerationType gen_type) {
   ollama::request req;
   ollama::options opts;
 
@@ -110,18 +118,29 @@ std::string Nissefar::generate_reply(const std::string &prompt,
   opts["top_p"] = 0.95;
   opts["min_p"] = 0;
 
-  req["system"] = config.system_prompt;
   req["prompt"] = prompt;
   req["options"] = opts["options"];
 
-  if (imagelist.size() > 0) {
-    req["model"] = config.vision_model;
-    req["images"] = imagelist;
-  } else if (is_diff) {
-    req["model"] = config.comparison_model;
+  using enum GenerationType;
+  switch (gen_type) {
+  case TextReply:
+    req["system"] = config.system_prompt;
+    if (imagelist.size() > 0) {
+      req["images"] = imagelist;
+      req["model"] = config.vision_model;
+    } else {
+      req["model"] = config.text_model;
+    }
+    break;
+  case Diff:
     req["system"] = config.diff_system_prompt;
-  } else {
-    req["model"] = config.text_model;
+    req["model"] = config.comparison_model;
+    break;
+  case ImageDescription:
+    req["system"] = config.image_description_system_prompt;
+    req["model"] = config.image_description_model;
+    req["images"] = imagelist;
+    break;
   }
 
   std::string answer{};
@@ -129,6 +148,10 @@ std::string Nissefar::generate_reply(const std::string &prompt,
     answer = ollama::generate(req);
   } catch (ollama::exception e) {
     answer = std::format("Exception running llm: {}", e.what());
+  }
+
+  if (gen_type == ImageDescription) {
+    bot->log(dpp::ll_info, std::format("Got image description: {}", answer));
   }
 
   return answer;
@@ -158,8 +181,18 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
       answer = true;
   }
 
+  auto imagelist = co_await generate_images(event.msg.attachments);
+  std::vector<std::string> image_desc{};
+
+  for (auto image : imagelist) {
+    ollama::images tmp_image;
+    tmp_image.push_back(image);
+    image_desc.push_back(generate_text("Describe the image.", tmp_image,
+                                       GenerationType::ImageDescription));
+  }
+
   Message last_message{event.msg.id, event.msg.message_reference.message_id,
-                       event.msg.content, event.msg.author.id};
+                       event.msg.content, event.msg.author.id, image_desc};
 
   if (answer) {
     std::string prompt =
@@ -168,13 +201,12 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
         format_message_history(event.msg.channel_id) +
         format_replyto_message(last_message);
 
-    auto imagelist = co_await generate_images(event.msg.attachments);
-
     bot->log(dpp::ll_info, prompt);
     bot->log(dpp::ll_info,
              std::format("Number of images: {}", imagelist.size()));
 
-    event.reply(generate_reply(prompt, imagelist, false), true);
+    event.reply(generate_text(prompt, imagelist, GenerationType::TextReply),
+                true);
   }
 
   add_channel_message(event.msg.channel_id, last_message);
@@ -305,7 +337,8 @@ void Nissefar::process_diffs() {
       auto prompt = std::format(
           "Filename: {}\nSheet name: {}\nCSV Header: {}\nDiff:\n{}", filename,
           sheet_names[filename][sheet_id], diffdata.header, diffdata.diffdata);
-      auto answer = generate_reply(prompt, ollama::images{}, true);
+      auto answer =
+          generate_text(prompt, ollama::images{}, GenerationType::Diff);
       answer += std::format("\n{}", diffdata.weblink);
       dpp::message msg(1267731118895927347, answer);
       bot->message_create(msg);
