@@ -1,4 +1,5 @@
 #include <Nissefar.h>
+#include <ctime>
 #include <sstream>
 #include <stdexcept>
 
@@ -329,24 +330,24 @@ dpp::task<void> Nissefar::process_google_docs() {
     std::string filename = filedata["name"].front();
     if (filename != "TB test results" && filename != "Charging curves")
       break;
-    std::string datestringparse =
-        datestring.substr(0, 10) + " " + datestring.substr(12, 8);
     const std::string file_id = filedata["id"].front();
     const std::string weblink = filedata["webViewLink"].front();
 
     std::chrono::sys_time<std::chrono::milliseconds> tp;
 
-    std::istringstream ds(datestringparse);
+    std::istringstream ds(datestring);
 
-    ds >> std::chrono::parse("%Y-%m-%d %H:%M:%S", tp);
+    ds >> std::chrono::parse("%Y-%m-%dT%H:%M:%S%Z", tp);
 
     if (ds.fail()) {
       bot->log(dpp::ll_info,
                std::format("Error parsing timestamp: {}", ds.str()));
     } else {
+      const std::string ntime = std::format("{:%Y-%m-%d %H:%M:%S %Z}", tp);
       if (timestamps[filename].time_since_epoch() ==
           std::chrono::milliseconds(0)) {
-        bot->log(dpp::ll_info, std::format("New entry: {}", filename));
+        bot->log(dpp::ll_info,
+                 std::format("New entry: {}, {}", filename, ntime));
         timestamps[filename] = tp;
         co_await process_sheets(filename, file_id, weblink);
 
@@ -361,8 +362,13 @@ dpp::task<void> Nissefar::process_google_docs() {
 
       } else {
         if (timestamps[filename] != tp) {
+          const std::string otime =
+              std::format("{:%Y-%m-%d %H:%M:%S %Z}", timestamps[filename]);
           timestamps[filename] = tp;
-          bot->log(dpp::ll_info, std::format("File {} has changed", filename));
+          bot->log(
+              dpp::ll_info,
+              std::format("File {} has changed.\nOld time: {}, New time: {}",
+                          filename, otime, ntime));
           // Need to limit to "known" sheets or it will keep adding blank id's
           // to the map and fail
           co_await process_sheets(filename, file_id, weblink);
