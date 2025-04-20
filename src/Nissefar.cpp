@@ -154,6 +154,12 @@ std::string Nissefar::generate_text(const std::string &prompt,
     bot->log(dpp::ll_info, std::format("Got image description: {}", answer));
   }
 
+  // Discord messages does not support more than 2000 charachters, leave room
+  // for url in some cases
+
+  if (answer.length() > 1800)
+    answer.resize(1800);
+
   return answer;
 }
 
