@@ -1,6 +1,6 @@
 #include <Nissefar.h>
-#include <ctime>
-#include <dpp/misc-enum.h>
+#include <cstdlib>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 
@@ -58,13 +58,15 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
       image_descs.append(std::format("\nImage {}: {}", i, image_desc));
     }
 
-    message_history += std::format("\n----------------------\n"
-                                   "Message id: {}\n"
-                                   "Reply to message id: {}\n"
-                                   "Author: {}\n"
-                                   "Message content:{}{}",
-                                   msg.msg_id.str(), msg.msg_replied_to.str(),
-                                   msg.author.str(), msg.content, image_descs);
+    message_history +=
+        std::format("\n----------------------\n"
+                    "Message id: {}\n"
+                    "Reply to message id: {}\n"
+                    "Author: {}\n"
+                    "Message content:{}\n"
+                    "Message mood:{}{}",
+                    msg.msg_id.str(), msg.msg_replied_to.str(),
+                    msg.author.str(), msg.content, msg.mood, image_descs);
   }
   if (!message_history.empty())
     message_history += "\n----------------------";
@@ -94,12 +96,13 @@ Nissefar::generate_images(std::vector<dpp::attachment> attachments) {
 // This is to show the message that it will respond to.
 
 std::string Nissefar::format_replyto_message(const Message &msg) {
-  std::string message_text = std::format(
-      "\nThe message you reply to:\n"
-      "----------------------\nMessage id: {}\nReply to message "
-      "id: {}\nAuthor: {}\nMessage content:{}\n----------------------\n",
-      msg.msg_id.str(), msg.msg_replied_to.str(), msg.author.str(),
-      msg.content);
+  std::string message_text =
+      std::format("\nThe message you reply to:\n"
+                  "----------------------\nMessage id: {}\nReply to message "
+                  "id: {}\nAuthor: {}\nMessage mood:{}\nMessage "
+                  "content:{}\n----------------------\n",
+                  msg.msg_id.str(), msg.msg_replied_to.str(), msg.author.str(),
+                  msg.mood, msg.content);
 
   return message_text;
 }
@@ -141,6 +144,11 @@ std::string Nissefar::generate_text(const std::string &prompt,
     req["model"] = config.image_description_model;
     req["images"] = imagelist;
     break;
+  case Reaction:
+    req["system"] = config.reaction_system_prompt;
+    req["model"] = config.reaction_model;
+    if (imagelist.size() > 0)
+      req["images"] = imagelist;
   }
 
   std::string answer{};
@@ -161,6 +169,39 @@ std::string Nissefar::generate_text(const std::string &prompt,
     answer.resize(1800);
 
   return answer;
+}
+
+// Routine to get the classification of the message mood according to the LLM
+
+std::string Nissefar::get_message_mood(const std::string content,
+                                       const ollama::images &imagelist) {
+  std::string mood =
+      generate_text(content, imagelist, GenerationType::Reaction);
+  while (!mood.empty() && (mood.back() == '\n' || mood.back() == '\r'))
+    mood.pop_back();
+  return mood;
+}
+
+void Nissefar::add_message_reaction(const std::string mood,
+                                    const dpp::snowflake channel_id,
+                                    const dpp::snowflake message_id) {
+  std::string reaction{};
+  if (mood == "Happy")
+    reaction = "🤗";
+  else if (mood == "Funny")
+    reaction = "🤣";
+  else if (mood == "Sad")
+    reaction = "😔";
+  else if (mood == "Angry")
+    reaction = "🤬";
+  else if (mood == "Clown")
+    reaction = "🤡";
+  else if (mood == "Enthusiastic EV")
+    reaction = "⚡";
+
+  if (!reaction.empty())
+    bot->message_add_reaction(message_id, channel_id, reaction);
+  bot->log(dpp::ll_info, std::format("Suggested reaction: {}", reaction));
 }
 
 // Coroutine to handle messages from any channel and or server
@@ -194,8 +235,24 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
                                        GenerationType::ImageDescription));
   }
 
-  Message last_message{event.msg.id, event.msg.message_reference.message_id,
-                       event.msg.content, event.msg.author.id, image_desc};
+  std::string mood = get_message_mood(event.msg.content, imagelist);
+  bot->log(dpp::ll_info, std::format("Message mood: {}", mood));
+
+  thread_local std::mt19937 gen(std::random_device{}());
+  thread_local std::uniform_int_distribution<> dist(1, 1000);
+
+  const int random_n = dist(gen);
+
+  // React to approximately 5% of the messages
+  if (event.msg.author.id != bot->me.id &&
+      (current_server->name == "tyfon's server" || random_n <= 50 ||
+       (event.msg.author.format_username() == "Pengu" && random_n <= 300)))
+    add_message_reaction(mood, event.msg.channel_id, event.msg.id);
+
+  Message last_message{
+      event.msg.id,        event.msg.message_reference.message_id,
+      event.msg.content,   mood,
+      event.msg.author.id, image_desc};
 
   if (answer) {
     std::string prompt =
@@ -217,7 +274,8 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
   co_return;
 }
 
-// Use the diff command to compare data between two strings as a unified diff.
+// Use the diff command to compare data between two strings as a unified
+// diff.
 
 std::string Nissefar::diff(const std::string olddata, const std::string newdata,
                            const int sheet_id) {
@@ -243,8 +301,8 @@ std::string Nissefar::diff(const std::string olddata, const std::string newdata,
     newfile.flush();
   }
 
-  // Easiest way to compare the file is just to pipe ye olde diff command into a
-  // string
+  // Easiest way to compare the file is just to pipe ye olde diff command
+  // into a string
 
   std::unique_ptr<FILE, void (*)(FILE *)> pipe(
       popen(std::format("diff -u {} {}", oldtempfile, newtempfile).c_str(),
@@ -280,9 +338,9 @@ dpp::task<void> Nissefar::process_sheets(const std::string filename,
                     "export?format=csv&gid={}",
                     file_id, sheet_id);
 
-    // Google docs will often redirect to a new url with the location headers
-    // and status 307 Make sure to try until a 200 response is hit. Vulnable to
-    // redirect "bomb", need to fix
+    // Google docs will often redirect to a new url with the location
+    // headers and status 307 Make sure to try until a 200 response is hit.
+    // Vulnable to redirect "bomb", need to fix
     bool is_done = false;
     while (!is_done) {
       auto sheet_resp = co_await bot->co_request(sheet_url, dpp::m_get);
@@ -332,7 +390,8 @@ dpp::task<void> Nissefar::process_sheets(const std::string filename,
 }
 
 // Process the diffs. We do this after processing the shieets since it might
-// take some time to run the llm and the google redirect links are short lived.
+// take some time to run the llm and the google redirect links are short
+// lived.
 
 void Nissefar::process_diffs() {
   for (auto &[filename, diffmap] : sheet_diffs) {
@@ -391,8 +450,8 @@ dpp::task<void> Nissefar::process_google_docs() {
         if (filename == "TB test results") {
           timestamps[filename] -= std::chrono::minutes(1);
           sheet_data[filename][26964202] += std::string(
-              "Mercedes Superexpensive,06.11.2022,Wet,3,Nokian R3,Winter,265 / "
-              "40 - 21,265 / 40 - 21,\"54,17\",\"3,96\",2800\n");
+              "Mercedes Superexpensive,06.11.2022,Wet,3,Nokian R3,Winter,265
+        / " "40 - 21,265 / 40 - 21,\"54,17\",\"3,96\",2800\n");
         }
         */
 
@@ -405,8 +464,8 @@ dpp::task<void> Nissefar::process_google_docs() {
               dpp::ll_info,
               std::format("File {} has changed.\nOld time: {}, New time: {}",
                           filename, otime, ntime));
-          // Need to limit to "known" sheets or it will keep adding blank id's
-          // to the map and fail
+          // Need to limit to "known" sheets or it will keep adding blank
+          // id's to the map and fail
           co_await process_sheets(filename, file_id, weblink);
           process_diffs();
         }

@@ -13,6 +13,7 @@ struct Message {
   const dpp::snowflake msg_id;
   const dpp::snowflake msg_replied_to;
   const std::string content;
+  const std::string mood;
   const dpp::snowflake author;
   const std::vector<std::string> image_descriptions;
 };
@@ -33,11 +34,7 @@ public:
   Nissefar();
   // Message reply type
 
-  enum class GenerationType {
-    TextReply,
-    Diff,
-    ImageDescription
-  };
+  enum class GenerationType { TextReply, Diff, ImageDescription, Reaction };
 
   void run();
   dpp::task<void> handle_message(const dpp::message_create_t &event);
@@ -47,7 +44,8 @@ public:
   std::string format_message_history(dpp::snowflake channel_id);
   std::string format_replyto_message(const Message &msg);
   std::string generate_text(const std::string &prompt,
-                             const ollama::images &imagelist, const GenerationType gen_type);
+                            const ollama::images &imagelist,
+                            const GenerationType gen_type);
   dpp::task<ollama::images>
   generate_images(std::vector<dpp::attachment> attachments);
   dpp::task<void> process_google_docs();
@@ -56,7 +54,11 @@ public:
                                  std::string weblink);
   std::string diff(const std::string olddata, const std::string newdata,
                    const int sheet_id);
-
+  std::string get_message_mood(const std::string content,
+                               const ollama::images &imagelist);
+  void add_message_reaction(const std::string mood,
+                            const dpp::snowflake channel_id,
+                            const dpp::snowflake message_id);
 
   void process_diffs();
 
@@ -87,6 +89,5 @@ public:
         {478179452, "Arctic Circle"},
         {1066718131, "Bangkok"}}},
       {"Charging curves", {{1593904708, "Charging curve"}}}};
-
 };
 #endif // NISSEFAR_H
