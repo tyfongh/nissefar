@@ -175,11 +175,8 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
   dpp::channel *current_chan = dpp::find_channel(event.msg.channel_id);
 
   bot->log(dpp::ll_info,
-           std::format("Message on server \"{}\", channel \"{}\", channel id: "
-                       "\"{}\", user: \"{}\": {}",
-                       current_server->name, current_chan->name,
-                       event.msg.channel_id.str(), event.msg.author.id.str(),
-                       event.msg.content));
+           std::format("#{} {}: {}", current_chan->name,
+                       event.msg.author.format_username(), event.msg.content));
 
   for (auto mention : event.msg.mentions) {
     if (mention.second.user_id == bot->me.id &&
