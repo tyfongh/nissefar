@@ -286,8 +286,7 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
 
   // React to approximately 5% of the messages
   if (event.msg.author.id != bot->me.id &&
-      (current_server->name == "tyfon's server" || random_n <= 50 ||
-       (event.msg.author.format_username() == "Pengu" && random_n <= 300)))
+      (current_server->name == "tyfon's server" || random_n <= 50))
     add_message_reaction(mood, event.msg.channel_id, event.msg.id);
 
   Message last_message{
