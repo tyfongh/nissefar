@@ -1,8 +1,8 @@
 #include <Nissefar.h>
-#include <cstdlib>
 #include <random>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 Nissefar::Nissefar() {
   if (!config.is_valid)
@@ -58,15 +58,13 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
       image_descs.append(std::format("\nImage {}: {}", i, image_desc));
     }
 
-    message_history +=
-        std::format("\n----------------------\n"
-                    "Message id: {}\n"
-                    "Reply to message id: {}\n"
-                    "Author: {}\n"
-                    "Message content:{}\n"
-                    "Message mood:{}{}",
-                    msg.msg_id.str(), msg.msg_replied_to.str(),
-                    msg.author.str(), msg.content, msg.mood, image_descs);
+    message_history += std::format("\n----------------------\n"
+                                   "Message id: {}\n"
+                                   "Reply to message id: {}\n"
+                                   "Author: {}\n"
+                                   "Message content:{}{}",
+                                   msg.msg_id.str(), msg.msg_replied_to.str(),
+                                   msg.author.str(), msg.content, image_descs);
   }
   if (!message_history.empty())
     message_history += "\n----------------------";
@@ -98,11 +96,13 @@ Nissefar::generate_images(std::vector<dpp::attachment> attachments) {
 std::string Nissefar::format_replyto_message(const Message &msg) {
   std::string message_text =
       std::format("\nThe message you reply to:\n"
-                  "----------------------\nMessage id: {}\nReply to message "
-                  "id: {}\nAuthor: {}\nMessage mood:{}\nMessage "
-                  "content:{}\n----------------------\n",
+                  "----------------------\n"
+                  "Message id: {}\nReply to message id: {}\n"
+                  "Author: {}\n"
+                  "Message content:{}"
+                  "\n----------------------\n",
                   msg.msg_id.str(), msg.msg_replied_to.str(), msg.author.str(),
-                  msg.mood, msg.content);
+                  msg.content);
 
   return message_text;
 }
@@ -149,6 +149,7 @@ std::string Nissefar::generate_text(const std::string &prompt,
     req["model"] = config.reaction_model;
     if (imagelist.size() > 0)
       req["images"] = imagelist;
+    break;
   }
 
   std::string answer{};
@@ -185,19 +186,45 @@ std::string Nissefar::get_message_mood(const std::string content,
 void Nissefar::add_message_reaction(const std::string mood,
                                     const dpp::snowflake channel_id,
                                     const dpp::snowflake message_id) {
+
+  const std::vector<std::string> charge_emotes = {
+      "🔋", "⚡", "supercharger:1285697435653373972",
+      "tesla:1267788459049877534"};
+
+  const std::vector<std::string> neutral_emotes = {
+      "3Head:1289162421960704070", "clueless:1268236855367962707",
+      "KKomrade:1300359527929221151", "Okayge:1267829394009882665"};
+
+  const std::vector<std::string> funny_emotes = {
+      "ICANT:1268258243424157859", "KEKW:1267825467533295769",
+      "KKonaW:1288852238869069844", "omegalul:1267788480503615518"};
+
+  const std::vector<std::string> sad_emotes = {
+      "Sadge:1274422757836460233", "Okayge:1267829394009882665",
+      "haHAA:1290193349772574760", "NotLikeThis:1267826684963323975"};
+
+  thread_local std::mt19937 gen(std::random_device{}());
+  thread_local std::uniform_int_distribution<> dist(0, 3);
+
+  const int react_rnd = dist(gen);
+
   std::string reaction{};
   if (mood == "Happy")
     reaction = "🤗";
   else if (mood == "Funny")
-    reaction = "🤣";
+    reaction = funny_emotes[react_rnd];
   else if (mood == "Sad")
-    reaction = "😔";
+    reaction = sad_emotes[react_rnd];
   else if (mood == "Angry")
     reaction = "🤬";
+  else if (mood == "Copium")
+    reaction = "copium:1267788485788438630";
   else if (mood == "Clown")
     reaction = "🤡";
   else if (mood == "Enthusiastic EV")
-    reaction = "⚡";
+    reaction = charge_emotes[react_rnd];
+  else if (mood == "Neutral")
+    reaction = neutral_emotes[react_rnd];
 
   if (!reaction.empty())
     bot->message_add_reaction(message_id, channel_id, reaction);
@@ -235,13 +262,27 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
                                        GenerationType::ImageDescription));
   }
 
-  std::string mood = get_message_mood(event.msg.content, imagelist);
-  bot->log(dpp::ll_info, std::format("Message mood: {}", mood));
+  std::string mood_msg{};
+  if (event.msg.content.empty() && imagelist.size() > 0)
+    mood_msg = image_desc[0];
+  else
+    mood_msg = event.msg.content;
 
+  /*
+  format_usernameto emoji_rep = co_await
+  bot->co_guild_emojis_get(current_server->id); auto emojis =
+  emoji_rep.get<dpp::emoji_map>(); for (auto emoji : emojis)
+  {
+    bot->log(dpp::ll_info, std::format("Emoji: {}", emoji.second.format()));
+  }
+*/
   thread_local std::mt19937 gen(std::random_device{}());
   thread_local std::uniform_int_distribution<> dist(1, 1000);
 
   const int random_n = dist(gen);
+
+  std::string mood = get_message_mood(mood_msg, imagelist);
+  bot->log(dpp::ll_info, std::format("Message mood: {}, {}", mood, random_n));
 
   // React to approximately 5% of the messages
   if (event.msg.author.id != bot->me.id &&
