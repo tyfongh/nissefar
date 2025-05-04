@@ -10,15 +10,19 @@ add_executable(${PROJECT_NAME}
   src/main.cpp
   src/Nissefar.cpp
   src/Config.cpp
+  src/Database.cpp
 )
 
 add_compile_definitions(DPP_CORO=ON)
 
 find_package(DPP REQUIRED)
+find_library(PQXX_LIB pqxx)
+find_library(PQ_LIB pq)
 
 target_link_libraries(${PROJECT_NAME}
   ${DPP_LIBRARIES}
-  /usr/lib/libdpp.so
+  ${PQXX_LIB}
+  ${PQ_LIB}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE

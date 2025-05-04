@@ -1,7 +1,10 @@
+#include <Database.h>
 #include <Nissefar.h>
+#include <dpp/snowflake.h>
 #include <random>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 Nissefar::Nissefar() {
@@ -286,13 +289,16 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
 
   // React to approximately 5% of the messages
   if (event.msg.author.id != bot->me.id &&
-      (current_server->name == "tyfon's server" || random_n <= 50))
+      (current_server->name == "tyfon's server" || random_n <= 10))
     add_message_reaction(mood, event.msg.channel_id, event.msg.id);
 
   Message last_message{
       event.msg.id,        event.msg.message_reference.message_id,
       event.msg.content,   mood,
       event.msg.author.id, image_desc};
+
+  store_message(last_message, current_server, current_chan,
+                event.msg.author.format_username());
 
   if (answer) {
     std::string prompt =
@@ -515,7 +521,81 @@ dpp::task<void> Nissefar::process_google_docs() {
   co_return;
 }
 
+void Nissefar::store_message(const Message &message, dpp::guild *server,
+                             dpp::channel *channel,
+                             const std::string user_name) {
+  int server_id{0};
+  int channel_id{0};
+  int user_id{0};
+
+  auto &db = Database::instance();
+
+  auto res =
+      db.execute("select server_id from server where server_snowflake_id = $1",
+                 std::stol(server->id.str()));
+
+  if (res.empty()) {
+    res = db.execute("insert into server (server_name, server_snowflake_id) "
+                     "values ($1, $2) returning server_id",
+                     server->name, std::stol(server->id.str()));
+    if (!res.empty())
+      server_id = res.front()["server_id"].as<int>();
+  } else {
+    server_id = res.front()["server_id"].as<int>();
+  }
+
+  res = db.execute(
+      "select channel_id from channel where channel_snowflake_id = $1",
+      std::stol(channel->id.str()));
+
+  if (res.empty()) {
+    res = db.execute(
+        "insert into channel (channel_name, server_id, channel_snowflake_id) "
+        "values ($1, $2, $3) returning channel_id",
+        channel->name, server_id, std::stol(channel->id.str()));
+    if (!res.empty())
+      channel_id = res.front()["channel_id"].as<int>();
+  } else {
+    channel_id = res.front()["channel_id"].as<int>();
+  }
+
+  res = db.execute(
+      "select user_id from discord_user where user_snowflake_id = $1",
+      std::stol(message.author.str()));
+
+  if (res.empty()) {
+    res = db.execute("insert into discord_user (user_name, user_snowflake_id) "
+                     "values ($1, $2) returning user_id",
+                     user_name, std::stol(message.author.str()));
+
+    if (!res.empty())
+      user_id = res.front()["user_id"].as<int>();
+  } else {
+    user_id = res.front()["user_id"].as<int>();
+  }
+
+  res = db.execute(
+      "insert into message (user_id, channel_id, content, mood, "
+      "message_snowflake_id, reply_to_snowflake_id, image_descriptions) values "
+      "($1, $2, $3, $4, $5, $6, $7) returning message_id",
+      user_id, channel_id, message.content, message.mood,
+      std::stol(message.author.str()), std::stol(message.msg_replied_to.str()),
+      message.image_descriptions);
+
+  bot->log(
+      dpp::ll_info,
+      std::format("server_id: {} channel id: {} user_id: {}, message_id {}",
+                  server_id, channel_id, user_id,
+                  res.front()["message_id"].as<int>()));
+}
+
 void Nissefar::run() {
+
+  auto &db = Database::instance();
+  if (db.initialize(config.db_connection_string))
+    std::cout << "Connected to db" << std::endl;
+  else
+    std::cout << "Failed to connect to db" << std::endl;
 
   bot->on_message_create(
       [this](const dpp::message_create_t &event) -> dpp::task<void> {
