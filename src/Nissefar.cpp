@@ -1,6 +1,5 @@
 #include <Database.h>
 #include <Nissefar.h>
-#include <dpp/snowflake.h>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -297,8 +296,9 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
       event.msg.content,   mood,
       event.msg.author.id, image_desc};
 
-  store_message(last_message, current_server, current_chan,
-                event.msg.author.format_username());
+  if (event.msg.author.id != bot->me.id)
+    store_message(last_message, current_server, current_chan,
+                  event.msg.author.format_username());
 
   if (answer) {
     std::string prompt =
@@ -589,6 +589,117 @@ void Nissefar::store_message(const Message &message, dpp::guild *server,
                   res.front()["message_id"].as<int>()));
 }
 
+dpp::task<void> Nissefar::setup_slashcommands() {
+  if (dpp::run_once<struct register_bot_commands>()) {
+    dpp::slashcommand pingcommand("ping", "Ping the nisse", bot->me.id);
+    dpp::slashcommand chanstats("chanstats", "Show stats for the channel",
+                                bot->me.id);
+
+    bot->global_bulk_command_create({pingcommand, chanstats});
+    bot->log(dpp::ll_info, "Slashcommands setup");
+  }
+  co_return;
+}
+
+dpp::task<void>
+Nissefar::handle_slashcommand(const dpp::slashcommand_t &event) {
+
+  bot->log(dpp::ll_info,
+           std::format("Slashcommand: {}", event.command.get_command_name()));
+
+  if (event.command.get_command_name() == "ping") {
+    // Processing takes more than 3 seconds, respond to not time out
+    event.thinking(
+        true, [event, this](const dpp::confirmation_callback_t &callback) {
+          auto answer = generate_text(
+              std::format("The user {} pinged you with the ping command",
+                          event.command.get_issuing_user().id.str()),
+              ollama::images{}, GenerationType::TextReply);
+          event.edit_original_response(
+              dpp::message(answer).set_flags(dpp::m_ephemeral));
+        });
+  } else if (event.command.get_command_name() == "chanstats") {
+    event.thinking(false, [event,
+                           this](const dpp::confirmation_callback_t &callback) {
+      auto &db = Database::instance();
+      auto res = db.execute(
+          "select"
+          "  u.user_name "
+          ", count(*) as nmsgs "
+          ", sum(coalesce(array_length(image_descriptions, 1),0)) as nimages "
+          "from message m "
+          "inner join discord_user u on (m.user_id = u.user_id) "
+          "inner join channel c on (m.channel_id = c.channel_id) "
+          "where c.channel_snowflake_id = $1 "
+          "group by u.user_name "
+          "order by nmsgs desc, nimages desc",
+          std::stol(event.command.channel_id.str()));
+
+      if (res.empty())
+        event.edit_original_response(
+            dpp::message("No messages posted in this channel"));
+      else {
+        event.edit_original_response(
+            dpp::message(format_chanstat(res, event.command.channel.name)));
+      }
+    });
+  }
+  co_return;
+}
+
+void Nissefar::pad_right(std::string &text, const size_t num,
+                         const std::string pad_char) {
+  auto len = num - text.length();
+  for (int i = 0; i < len; i++) {
+    text.append(pad_char);
+  }
+}
+
+void Nissefar::pad_left(std::string &text, const size_t num,
+                        const std::string pad_char) {
+  auto len = num - text.length();
+
+  for (int i = 0; i < len; i++) {
+    text.insert(0, pad_char);
+  }
+}
+
+std::string Nissefar::format_chanstat(const pqxx::result res,
+                                      std::string channel) {
+
+  channel.insert(0, "#");
+  if (channel.length() > 20)
+    channel.resize(19);
+  pad_right(channel, 20, "═");
+
+  std::string chanstats_table =
+      std::format("```╔═{}╦══msgs══╦══imgs══╗\n", channel);
+
+  bool first = true;
+
+  for (auto row : res) {
+    if (!first)
+      chanstats_table.append("╠═════════════════════╬════════╬════════╣\n");
+    std::string username = row["user_name"].as<std::string>();
+    std::string msgs = row["nmsgs"].as<std::string>();
+    std::string imgs = row["nimages"].as<std::string>();
+
+    if (username.length() > 19)
+      username.resize(19);
+    pad_right(username, 20, " ");
+    pad_left(msgs, 7, " ");
+    pad_left(imgs, 7, " ");
+    chanstats_table.append(
+        std::format("║ {}║{} ║{} ║\n", username, msgs, imgs));
+
+    first = false;
+  }
+
+  chanstats_table.append("╚═════════════════════╩════════╩════════╝```");
+
+  return chanstats_table;
+}
+
 void Nissefar::run() {
 
   auto &db = Database::instance();
@@ -604,8 +715,16 @@ void Nissefar::run() {
 
   bot->log(dpp::ll_info, "Initial process of sheets");
   bot->on_ready([this](const dpp::ready_t &event) -> dpp::task<void> {
-    co_return co_await process_google_docs();
+    // Only run slashcommands setup when changing things
+    // co_await setup_slashcommands();
+    co_await process_google_docs();
+    co_return;
   });
+
+  bot->on_slashcommand(
+      [this](const dpp::slashcommand_t &event) -> dpp::task<void> {
+        co_return co_await handle_slashcommand(event);
+      });
 
   bot->log(dpp::ll_info, "Starting directory timer, 300 seconds");
   bot->start_timer(

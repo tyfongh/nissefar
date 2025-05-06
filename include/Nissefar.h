@@ -5,8 +5,8 @@
 #include <chrono>
 #include <deque>
 #include <dpp/dpp.h>
-#include <dpp/snowflake.h>
 #include <ollama.hpp>
+#include <pqxx/pqxx>
 #include <string_view>
 #include <unordered_map>
 
@@ -89,6 +89,14 @@ private:
   void process_diffs();
   void store_message(const Message &message, dpp::guild *server,
                      dpp::channel *channel, const std::string user_name);
+
+  dpp::task<void> setup_slashcommands();
+  dpp::task<void> handle_slashcommand(const dpp::slashcommand_t &event);
+
+  void pad_right(std::string &text, const size_t num, std::string pad_char);
+  void pad_left(std::string &text, const size_t num, std::string pad_char);
+
+  std::string format_chanstat(const pqxx::result res, std::string channel);
 
 public:
   Nissefar();
