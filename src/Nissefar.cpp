@@ -647,9 +647,17 @@ Nissefar::handle_slashcommand(const dpp::slashcommand_t &event) {
   co_return;
 }
 
+size_t Nissefar::utf8_len(std::string &text) {
+  size_t len = 0;
+  const char *s = text.c_str();
+  while (*s)
+    len += (*s++ & 0xc0) != 0x80;
+  return len;
+}
+
 void Nissefar::pad_right(std::string &text, const size_t num,
                          const std::string pad_char) {
-  auto len = num - text.length();
+  auto len = num - utf8_len(text);
   for (int i = 0; i < len; i++) {
     text.append(pad_char);
   }
@@ -657,7 +665,7 @@ void Nissefar::pad_right(std::string &text, const size_t num,
 
 void Nissefar::pad_left(std::string &text, const size_t num,
                         const std::string pad_char) {
-  auto len = num - text.length();
+  auto len = num - utf8_len(text);
 
   for (int i = 0; i < len; i++) {
     text.insert(0, pad_char);
@@ -668,7 +676,11 @@ std::string Nissefar::format_chanstat(const pqxx::result res,
                                       std::string channel) {
 
   channel.insert(0, "#");
-  if (channel.length() > 20)
+
+  // Need fix, this will chop too many characters if UTF-8 is present
+  // Tabel structure still fine
+
+  if (utf8_len(channel) > 20)
     channel.resize(19);
   pad_right(channel, 20, "═");
 
@@ -684,7 +696,9 @@ std::string Nissefar::format_chanstat(const pqxx::result res,
     std::string msgs = row["nmsgs"].as<std::string>();
     std::string imgs = row["nimages"].as<std::string>();
 
-    if (username.length() > 19)
+    // Need fix, this will chop too many characters if UTF-8 is present
+    // Tabel structure still fine
+    if (utf8_len(username) > 19)
       username.resize(19);
     pad_right(username, 20, " ");
     pad_left(msgs, 7, " ");

@@ -93,6 +93,7 @@ private:
   dpp::task<void> setup_slashcommands();
   dpp::task<void> handle_slashcommand(const dpp::slashcommand_t &event);
 
+  size_t utf8_len(std::string &text);
   void pad_right(std::string &text, const size_t num, std::string pad_char);
   void pad_left(std::string &text, const size_t num, std::string pad_char);
 
