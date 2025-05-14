@@ -251,6 +251,8 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
   for (auto mention : event.msg.mentions) {
     if (mention.second.user_id == bot->me.id &&
         event.msg.author.id != bot->me.id)
+      //         event.msg.channel_id == 1337361807471546408) ||
+      //        current_server->name == "tyfon's server")
       answer = true;
   }
 
@@ -282,13 +284,13 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
   thread_local std::uniform_int_distribution<> dist(1, 1000);
 
   const int random_n = dist(gen);
-
   std::string mood = get_message_mood(mood_msg, imagelist);
   bot->log(dpp::ll_info, std::format("Message mood: {}, {}", mood, random_n));
 
   // React to approximately 5% of the messages
   if (event.msg.author.id != bot->me.id &&
-      (current_server->name == "tyfon's server" || random_n <= 10))
+      (current_server->name == "tyfon's server" ||
+       (event.msg.channel_id == 1337361807471546408 && random_n <= 200)))
     add_message_reaction(mood, event.msg.channel_id, event.msg.id);
 
   Message last_message{
