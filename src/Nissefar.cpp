@@ -532,21 +532,25 @@ dpp::task<void> Nissefar::process_youtube() {
 
   auto live_data = nlohmann::json::parse(res.body.data());
 
-  int live_count = live_data["pageInfo"]["totalResults"].front();
-  bot->log(dpp::ll_info, std::format("Live data: {}", live_count));
+  if (live_data.find("pageInfo") != live_data.end()) {
+    int live_count = live_data["pageInfo"]["totalResults"].front();
+    bot->log(dpp::ll_info, std::format("Live data: {}", live_count));
 
-  if (live_count == 0 && config.is_streaming) {
-    bot->log(dpp::ll_info, "Bjørn stopped streaming");
-    dpp::message msg(1267731118895927347, "Bjørn stopped streaming");
-    bot->message_create(msg);
-    config.is_streaming = false;
-  }
+    if (live_count == 0 && config.is_streaming) {
+      bot->log(dpp::ll_info, "Bjørn stopped streaming");
+      dpp::message msg(1267731118895927347, "Bjørn stopped streaming");
+      bot->message_create(msg);
+      config.is_streaming = false;
+    }
 
-  if (live_count > 0 && !config.is_streaming) {
-    bot->log(dpp::ll_info, "Bjørn started streaming");
-    dpp::message msg(1267731118895927347, "Bjørn started streaming");
-    bot->message_create(msg);
-    config.is_streaming = true;
+    if (live_count > 0 && !config.is_streaming) {
+      bot->log(dpp::ll_info, "Bjørn started streaming");
+      dpp::message msg(1267731118895927347, "Bjørn started streaming");
+      bot->message_create(msg);
+      config.is_streaming = true;
+    }
+  } else {
+    bot->log(dpp::ll_info, "Youtube: pageInfo key not found in json");
   }
   co_return;
 }
