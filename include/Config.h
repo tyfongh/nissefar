@@ -23,8 +23,10 @@ public:
   std::string reaction_model;
   std::string db_connection_string;
   std::string directory_url;
+  std::string youtube_url;
 
   bool is_valid = false;
+  bool is_streaming = false;
 
   Config();
   Config(bool valid, std::string discord_token, std::string google_api_key,

@@ -1,5 +1,8 @@
 #include <Database.h>
 #include <Nissefar.h>
+#include <dpp/misc-enum.h>
+#include <dpp/nlohmann/json_fwd.hpp>
+#include <dpp/queues.h>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -523,6 +526,31 @@ dpp::task<void> Nissefar::process_google_docs() {
   co_return;
 }
 
+dpp::task<void> Nissefar::process_youtube() {
+  bot->log(dpp::ll_info, "Process youtube..");
+  auto res = co_await bot->co_request(config.youtube_url, dpp::m_get);
+
+  auto live_data = nlohmann::json::parse(res.body.data());
+
+  int live_count = live_data["pageInfo"]["totalResults"].front();
+  bot->log(dpp::ll_info, std::format("Live data: {}", live_count));
+
+  if (live_count == 0 && config.is_streaming) {
+    bot->log(dpp::ll_info, "Bjørn stopped streaming");
+    dpp::message msg(1267731118895927347, "Bjørn stopped streaming");
+    bot->message_create(msg);
+    config.is_streaming = false;
+  }
+
+  if (live_count > 0 && !config.is_streaming) {
+    bot->log(dpp::ll_info, "Bjørn started streaming");
+    dpp::message msg(1267731118895927347, "Bjørn started streaming");
+    bot->message_create(msg);
+    config.is_streaming = true;
+  }
+  co_return;
+}
+
 void Nissefar::store_message(const Message &message, dpp::guild *server,
                              dpp::channel *channel,
                              const std::string user_name) {
@@ -733,6 +761,7 @@ void Nissefar::run() {
   bot->on_ready([this](const dpp::ready_t &event) -> dpp::task<void> {
     // Only run slashcommands setup when changing things
     // co_await setup_slashcommands();
+    co_await process_youtube();
     co_await process_google_docs();
     co_return;
   });
@@ -745,7 +774,9 @@ void Nissefar::run() {
   bot->log(dpp::ll_info, "Starting directory timer, 300 seconds");
   bot->start_timer(
       [this](const dpp::timer &timer) -> dpp::task<void> {
-        co_return co_await process_google_docs();
+        co_await process_google_docs();
+        co_await process_youtube();
+        co_return;
       },
       300);
 

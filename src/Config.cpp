@@ -88,4 +88,9 @@ Config::Config(bool valid, std::string discord_token,
                               "parents&key={}&fields=files("
                               "id,name,modifiedTime,webViewLink)",
                               this->google_api_key);
+  youtube_url =
+      std::format("https://www.googleapis.com/youtube/v3/"
+                  "search?part=snippet&channelId=UCD3YwI6vR9BSHufERd4sqwQ&"
+                  "eventType=live&type=video&key={}",
+                  this->google_api_key);
 }
