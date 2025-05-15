@@ -75,7 +75,7 @@ private:
   dpp::task<ollama::images>
   generate_images(std::vector<dpp::attachment> attachments);
   dpp::task<void> process_google_docs();
-  dpp::task<void> process_youtube();
+  dpp::task<void> process_youtube(bool first_run);
   dpp::task<void> process_sheets(const std::string filename,
                                  const std::string file_id,
                                  std::string weblink);

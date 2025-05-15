@@ -526,7 +526,7 @@ dpp::task<void> Nissefar::process_google_docs() {
   co_return;
 }
 
-dpp::task<void> Nissefar::process_youtube() {
+dpp::task<void> Nissefar::process_youtube(bool first_run) {
   bot->log(dpp::ll_info, "Process youtube..");
   auto res = co_await bot->co_request(config.youtube_url, dpp::m_get);
 
@@ -545,8 +545,33 @@ dpp::task<void> Nissefar::process_youtube() {
 
     if (live_count > 0 && !config.is_streaming) {
       bot->log(dpp::ll_info, "Bjørn started streaming");
-      dpp::message msg(1267731118895927347, "Bjørn started streaming");
-      bot->message_create(msg);
+      if (!first_run) {
+        std::vector<std::pair<std::string, std::string>> live_streams{};
+        for (auto video_item : live_data["items"])
+          live_streams.push_back({video_item["id"]["videoId"].front(),
+                                  video_item["snippet"]["title"].front()});
+
+        std::string prompt =
+            "Bjørn Nyland just started a live stream on youtube. Make your "
+            "comment an "
+            "announcement of that. Below are the titles of the live stream(s). "
+            "Do not include any link to the stream. Do not include any user "
+            "ids.";
+
+        for (auto video : live_streams)
+          prompt.append(std::format("\nLive stream title: {}", video.second));
+
+        bot->log(dpp::ll_info, prompt);
+        auto answer =
+            generate_text(prompt, ollama::images{}, GenerationType::TextReply);
+
+        for (auto video : live_streams)
+          answer.append(
+              std::format("\nhttps://www.youtube.com/watch?v={}", video.first));
+
+        dpp::message msg(1267731118895927347, answer);
+        bot->message_create(msg);
+      }
       config.is_streaming = true;
     }
   } else {
@@ -765,7 +790,7 @@ void Nissefar::run() {
   bot->on_ready([this](const dpp::ready_t &event) -> dpp::task<void> {
     // Only run slashcommands setup when changing things
     // co_await setup_slashcommands();
-    co_await process_youtube();
+    co_await process_youtube(true);
     co_await process_google_docs();
     co_return;
   });
@@ -782,11 +807,12 @@ void Nissefar::run() {
       },
       300);
 
+  bot->log(dpp::ll_info, "Starting youtube timer, 1500 seconds");
   bot->start_timer(
       [this](const dpp::timer &timer) -> dpp::task<void> {
-        co_return co_await process_youtube();
+        co_return co_await process_youtube(false);
       },
-      300);
+      1500);
 
   bot->log(dpp::ll_info, "Starting bot..");
   bot->start(dpp::st_wait);
