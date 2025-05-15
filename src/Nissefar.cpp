@@ -778,9 +778,13 @@ void Nissefar::run() {
   bot->log(dpp::ll_info, "Starting directory timer, 300 seconds");
   bot->start_timer(
       [this](const dpp::timer &timer) -> dpp::task<void> {
-        co_await process_google_docs();
-        co_await process_youtube();
-        co_return;
+        co_return co_await process_google_docs();
+      },
+      300);
+
+  bot->start_timer(
+      [this](const dpp::timer &timer) -> dpp::task<void> {
+        co_return co_await process_youtube();
       },
       300);
 
