@@ -1,12 +1,11 @@
 #include <Database.h>
 #include <Nissefar.h>
-#include <dpp/misc-enum.h>
-#include <dpp/nlohmann/json_fwd.hpp>
-#include <dpp/queues.h>
+#include <chrono>
 #include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 Nissefar::Nissefar() {
@@ -247,6 +246,9 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
   dpp::guild *current_server = dpp::find_guild(event.msg.guild_id);
   dpp::channel *current_chan = dpp::find_channel(event.msg.channel_id);
 
+  if (current_server->name == "tyfon's server")
+    co_return;
+
   bot->log(dpp::ll_info,
            std::format("#{} {}: {}", current_chan->name,
                        event.msg.author.format_username(), event.msg.content));
@@ -292,8 +294,7 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
 
   // React to approximately 5% of the messages
   if (event.msg.author.id != bot->me.id &&
-      (current_server->name == "tyfon's server" ||
-       (event.msg.channel_id == 1337361807471546408 && random_n <= 200)))
+      (event.msg.channel_id == 1337361807471546408 && random_n <= 200))
     add_message_reaction(mood, event.msg.channel_id, event.msg.id);
 
   Message last_message{
@@ -538,8 +539,10 @@ dpp::task<void> Nissefar::process_youtube(bool first_run) {
 
     if (live_count == 0 && config.is_streaming) {
       bot->log(dpp::ll_info, "Bjørn stopped streaming");
+      /*
       dpp::message msg(1267731118895927347, "Bjørn stopped streaming");
       bot->message_create(msg);
+      */
       config.is_streaming = false;
     }
 
@@ -773,6 +776,36 @@ std::string Nissefar::format_chanstat(const pqxx::result res,
   return chanstats_table;
 }
 
+dpp::task<void>
+Nissefar::handle_reaction(const dpp::message_reaction_add_t &event) {
+  std::string emoji{};
+  if (event.reacting_emoji.format().size() > 4)
+    emoji = std::format("<:{}>", event.reacting_emoji.format());
+  else
+    emoji = event.reacting_emoji.format();
+
+  const std::vector<std::string> message_texts = {
+      std::format("<@{}> why {}", event.reacting_user.id.str(), emoji),
+      std::format("<@{}> why {}?", event.reacting_user.id.str(), emoji),
+      std::format("why {} <@{}>", emoji, event.reacting_user.id.str()),
+      std::format("why {} <@{}>?", emoji, event.reacting_user.id.str())};
+
+  if (event.message_author_id == bot->me.id &&
+      event.channel_id == 1337361807471546408) {
+    thread_local std::mt19937 gen(std::random_device{}());
+    thread_local std::uniform_int_distribution<> distm(0, 3);
+    thread_local std::uniform_int_distribution<> dists(1, 5);
+
+    const int react_rnd = distm(gen);
+    const int sec_rnd = dists(gen);
+
+    dpp::message msg(event.channel_id, message_texts[react_rnd]);
+    std::this_thread::sleep_for(std::chrono::seconds(sec_rnd));
+    bot->message_create(msg);
+  }
+  co_return;
+}
+
 void Nissefar::run() {
 
   auto &db = Database::instance();
@@ -784,6 +817,11 @@ void Nissefar::run() {
   bot->on_message_create(
       [this](const dpp::message_create_t &event) -> dpp::task<void> {
         co_return co_await handle_message(event);
+      });
+
+  bot->on_message_reaction_add(
+      [this](const dpp::message_reaction_add_t &event) -> dpp::task<void> {
+        co_return co_await handle_reaction(event);
       });
 
   bot->log(dpp::ll_info, "Initial process of sheets");

@@ -64,6 +64,7 @@ private:
   // Methods
 
   dpp::task<void> handle_message(const dpp::message_create_t &event);
+  dpp::task<void> handle_reaction(const dpp::message_reaction_add_t &event);
   void add_channel_message(dpp::snowflake channel_id, const Message &msg);
   const std::deque<Message> &
   get_channel_history(dpp::snowflake channel_id) const;
