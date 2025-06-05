@@ -518,8 +518,15 @@ dpp::task<void> Nissefar::process_google_docs() {
                           filename, otime, ntime));
           // Need to limit to "known" sheets or it will keep adding blank
           // id's to the map and fail
-          co_await process_sheets(filename, file_id, weblink);
-          process_diffs();
+          if (filename == "TB test results") {
+            co_await process_sheets(filename, file_id, weblink);
+            process_diffs();
+          } else {
+            dpp::message msg(
+                1267731118895927347,
+                std::format("Charging curves has changed\n{}", weblink));
+            bot->message_create(msg);
+          }
         }
       }
     }
@@ -790,17 +797,18 @@ Nissefar::handle_reaction(const dpp::message_reaction_add_t &event) {
       std::format("why {} <@{}>", emoji, event.reacting_user.id.str()),
       std::format("why {} <@{}>?", emoji, event.reacting_user.id.str())};
 
+  thread_local std::mt19937 gen(std::random_device{}());
+  thread_local std::uniform_int_distribution<> distn(0, 1000);
+
   if (event.message_author_id == bot->me.id &&
-      event.channel_id == 1337361807471546408) {
-    thread_local std::mt19937 gen(std::random_device{}());
+      event.channel_id == 1337361807471546408 &&
+      event.reacting_emoji.format() == "🤡" && distn(gen) < 200) {
+
     thread_local std::uniform_int_distribution<> distm(0, 3);
     thread_local std::uniform_int_distribution<> dists(1, 5);
 
-    const int react_rnd = distm(gen);
-    const int sec_rnd = dists(gen);
-
-    dpp::message msg(event.channel_id, message_texts[react_rnd]);
-    std::this_thread::sleep_for(std::chrono::seconds(sec_rnd));
+    dpp::message msg(event.channel_id, message_texts[distm(gen)]);
+    std::this_thread::sleep_for(std::chrono::seconds(dists(gen)));
     bot->message_create(msg);
   }
   co_return;
