@@ -1,6 +1,7 @@
 #include <chrono>
 #include <memory>
 #include <pqxx/pqxx>
+#include <pqxx/zview.hxx>
 
 class Database {
 private:
@@ -38,9 +39,12 @@ public:
         throw std::runtime_error("Failed to connect to database");
       }
 
+      pqxx::params params;
+      (params.append(args), ...);
+
       std::lock_guard<std::mutex> lock(db_mutex);
       pqxx::work txn(*db_connection);
-      pqxx::result result = txn.exec_params(sql, std::forward<Args>(args)...);
+      pqxx::result result = txn.exec(pqxx::zview(sql), params);
       txn.commit();
       return result;
 
