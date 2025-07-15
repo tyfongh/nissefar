@@ -1,11 +1,13 @@
 #include <Database.h>
 #include <Nissefar.h>
 #include <chrono>
+#include <dpp/snowflake.h>
 #include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <variant>
 #include <vector>
 
 Nissefar::Nissefar() {
@@ -660,9 +662,12 @@ void Nissefar::store_message(const Message &message, dpp::guild *server,
 
 dpp::task<void> Nissefar::setup_slashcommands() {
   if (dpp::run_once<struct register_bot_commands>()) {
+    bot->global_bulk_command_delete();
     dpp::slashcommand pingcommand("ping", "Ping the nisse", bot->me.id);
     dpp::slashcommand chanstats("chanstats", "Show stats for the channel",
                                 bot->me.id);
+    chanstats.add_option(dpp::command_option(dpp::co_channel, "channel",
+                                             "Stats from this channel", false));
 
     bot->global_bulk_command_create({pingcommand, chanstats});
     bot->log(dpp::ll_info, "Slashcommands setup");
@@ -690,6 +695,18 @@ Nissefar::handle_slashcommand(const dpp::slashcommand_t &event) {
   } else if (event.command.get_command_name() == "chanstats") {
     event.thinking(false, [event,
                            this](const dpp::confirmation_callback_t &callback) {
+      dpp::channel channel;
+
+      try {
+
+        channel = *dpp::find_channel(
+            std::get<dpp::snowflake>(event.get_parameter("channel")));
+      } catch (const std::bad_variant_access &ex) {
+        channel = event.command.channel;
+      }
+
+      bot->log(dpp::ll_info, std::format("Channel: {}", channel.name));
+
       auto &db = Database::instance();
       auto res = db.execute(
           "select"
@@ -701,15 +718,16 @@ Nissefar::handle_slashcommand(const dpp::slashcommand_t &event) {
           "inner join channel c on (m.channel_id = c.channel_id) "
           "where c.channel_snowflake_id = $1 "
           "group by u.user_name "
-          "order by nmsgs desc, nimages desc",
-          std::stol(event.command.channel_id.str()));
+          "order by nmsgs desc, nimages desc "
+          " limit 20",
+          std::stol(channel.id.str()));
 
       if (res.empty())
         event.edit_original_response(
             dpp::message("No messages posted in this channel"));
       else {
         event.edit_original_response(
-            dpp::message(format_chanstat(res, event.command.channel.name)));
+            dpp::message(format_chanstat(res, channel.name)));
       }
     });
   }
