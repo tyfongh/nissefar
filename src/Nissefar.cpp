@@ -40,6 +40,7 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
                         "     , u.user_snowflake_id "
                         "     , m.content "
                         "     , m.image_descriptions "
+                        "     , m.reactions "
                         "from message m "
                         "inner join discord_user u on (u.user_id = m.user_id) "
                         "inner join channel c on (c.channel_id = m.channel_id) "
@@ -63,6 +64,17 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
                       message["reply_to_snowflake_id"].as<std::string>(),
                       message["user_snowflake_id"].as<std::string>(),
                       message["content"].as<std::string>());
+
+      pqxx::array<std::string> reactions =
+          message["reactions"].as_sql_array<std::string>();
+
+      if (reactions.size() > 0) {
+        message_history += "\nReactions: ";
+        for (int i = 0; i < reactions.size(); ++i) {
+          message_history += std::format("{} ", reactions[i]);
+        }
+      }
+
       pqxx::array<std::string> image_descriptions =
           message["image_descriptions"].as_sql_array<std::string>();
 
@@ -837,12 +849,12 @@ void Nissefar::run() {
       },
       300);
 
-  bot->log(dpp::ll_info, "Starting youtube timer, 1500 seconds");
-  bot->start_timer(
-      [this](const dpp::timer &timer) -> dpp::task<void> {
-        co_return co_await process_youtube(false);
-      },
-      1500);
+    bot->log(dpp::ll_info, "Starting youtube timer, 1500 seconds");
+    bot->start_timer(
+        [this](const dpp::timer &timer) -> dpp::task<void> {
+          co_return co_await process_youtube(false);
+        },
+        1500);
 
   bot->log(dpp::ll_info, "Starting bot..");
   bot->start(dpp::st_wait);
