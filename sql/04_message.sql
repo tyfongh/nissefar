@@ -6,7 +6,6 @@ create table message
   , user_id               int references discord_user(user_id)
   , channel_id            int references channel(channel_id)
   , content               text
-  , mood                  text
   , message_snowflake_id  bigint
   , reply_to_snowflake_id bigint
   , image_descriptions    text[]

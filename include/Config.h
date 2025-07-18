@@ -15,12 +15,10 @@ public:
   std::string system_prompt;
   std::string diff_system_prompt;
   std::string image_description_system_prompt;
-  std::string reaction_system_prompt;
   std::string text_model;
   std::string comparison_model;
   std::string vision_model;
   std::string image_description_model;
-  std::string reaction_model;
   std::string db_connection_string;
   std::string directory_url;
   std::string youtube_url;
@@ -31,11 +29,10 @@ public:
   Config();
   Config(bool valid, std::string discord_token, std::string google_api_key,
          std::string system_prompt, std::string diff_system_prompt,
-         std::string image_description_system_prompt,
-         std::string reaction_system_prompt, std::string text_model,
+         std::string image_description_system_prompt, std::string text_model,
          std::string comparison_model, std::string vision_model,
-         std::string image_description_model, std::string reaction_model,
-         std::string db_connection_string, int max_history);
+         std::string image_description_model, std::string db_connection_string,
+         int max_history);
 };
 
 #endif // BOT_CONFIG_H

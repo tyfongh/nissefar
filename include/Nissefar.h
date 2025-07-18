@@ -14,7 +14,6 @@ struct Message {
   const dpp::snowflake msg_id;
   const dpp::snowflake msg_replied_to;
   const std::string content;
-  const std::string mood;
   const dpp::snowflake author;
   const std::vector<std::string> image_descriptions;
 };
@@ -33,7 +32,7 @@ private:
   std::unique_ptr<dpp::cluster> bot;
   std::unordered_map<dpp::snowflake, std::deque<Message>> channel_history;
 
-  enum class GenerationType { TextReply, Diff, ImageDescription, Reaction };
+  enum class GenerationType { TextReply, Diff, ImageDescription };
 
   std::map<std::string, std::chrono::sys_time<std::chrono::milliseconds>>
       timestamps;

@@ -1,7 +1,6 @@
 #include <Database.h>
 #include <Nissefar.h>
 #include <chrono>
-#include <dpp/snowflake.h>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -150,12 +149,6 @@ std::string Nissefar::generate_text(const std::string &prompt,
     req["model"] = config.image_description_model;
     req["images"] = imagelist;
     break;
-  case Reaction:
-    req["system"] = config.reaction_system_prompt;
-    req["model"] = config.reaction_model;
-    if (imagelist.size() > 0)
-      req["images"] = imagelist;
-    break;
   }
 
   std::string answer{};
@@ -176,65 +169,6 @@ std::string Nissefar::generate_text(const std::string &prompt,
     answer.resize(1800);
 
   return answer;
-}
-
-// Routine to get the classification of the message mood according to the LLM
-
-std::string Nissefar::get_message_mood(const std::string content,
-                                       const ollama::images &imagelist) {
-  std::string mood =
-      generate_text(content, imagelist, GenerationType::Reaction);
-  while (!mood.empty() && (mood.back() == '\n' || mood.back() == '\r'))
-    mood.pop_back();
-  return mood;
-}
-
-void Nissefar::add_message_reaction(const std::string mood,
-                                    const dpp::snowflake channel_id,
-                                    const dpp::snowflake message_id) {
-
-  const std::vector<std::string> charge_emotes = {
-      "🔋", "⚡", "supercharger:1285697435653373972",
-      "tesla:1267788459049877534"};
-
-  const std::vector<std::string> neutral_emotes = {
-      "3Head:1289162421960704070", "clueless:1268236855367962707",
-      "KKomrade:1300359527929221151", "Okayge:1267829394009882665"};
-
-  const std::vector<std::string> funny_emotes = {
-      "ICANT:1268258243424157859", "KEKW:1267825467533295769",
-      "KKonaW:1288852238869069844", "omegalul:1267788480503615518"};
-
-  const std::vector<std::string> sad_emotes = {
-      "Sadge:1274422757836460233", "Okayge:1267829394009882665",
-      "haHAA:1290193349772574760", "NotLikeThis:1267826684963323975"};
-
-  thread_local std::mt19937 gen(std::random_device{}());
-  thread_local std::uniform_int_distribution<> dist(0, 3);
-
-  const int react_rnd = dist(gen);
-
-  std::string reaction{};
-  if (mood == "Happy")
-    reaction = "🤗";
-  else if (mood == "Funny")
-    reaction = funny_emotes[react_rnd];
-  else if (mood == "Sad")
-    reaction = sad_emotes[react_rnd];
-  else if (mood == "Angry")
-    reaction = "🤬";
-  else if (mood == "Copium")
-    reaction = "copium:1267788485788438630";
-  else if (mood == "Clown")
-    reaction = "🤡";
-  else if (mood == "Enthusiastic EV")
-    reaction = charge_emotes[react_rnd];
-  else if (mood == "Neutral")
-    reaction = neutral_emotes[react_rnd];
-
-  if (!reaction.empty())
-    bot->message_add_reaction(message_id, channel_id, reaction);
-  bot->log(dpp::ll_info, std::format("Suggested reaction: {}", reaction));
 }
 
 // Coroutine to handle messages from any channel and or server
@@ -273,12 +207,6 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
                                        GenerationType::ImageDescription));
   }
 
-  std::string mood_msg{};
-  if (event.msg.content.empty() && imagelist.size() > 0)
-    mood_msg = image_desc[0];
-  else
-    mood_msg = event.msg.content;
-
   /*
   format_usernameto emoji_rep = co_await
   bot->co_guild_emojis_get(current_server->id); auto emojis =
@@ -291,18 +219,11 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
   thread_local std::uniform_int_distribution<> dist(1, 1000);
 
   const int random_n = dist(gen);
-  std::string mood = get_message_mood(mood_msg, imagelist);
-  bot->log(dpp::ll_info, std::format("Message mood: {}, {}", mood, random_n));
 
   // React to approximately 5% of the messages
-  if (event.msg.author.id != bot->me.id &&
-      (event.msg.channel_id == 1337361807471546408 && random_n <= 200))
-    add_message_reaction(mood, event.msg.channel_id, event.msg.id);
 
-  Message last_message{
-      event.msg.id,        event.msg.message_reference.message_id,
-      event.msg.content,   mood,
-      event.msg.author.id, image_desc};
+  Message last_message{event.msg.id, event.msg.message_reference.message_id,
+                       event.msg.content, event.msg.author.id, image_desc};
 
   if (event.msg.author.id != bot->me.id)
     store_message(last_message, current_server, current_chan,
@@ -646,10 +567,10 @@ void Nissefar::store_message(const Message &message, dpp::guild *server,
   }
 
   res = db.execute(
-      "insert into message (user_id, channel_id, content, mood, "
+      "insert into message (user_id, channel_id, content, "
       "message_snowflake_id, reply_to_snowflake_id, image_descriptions) values "
-      "($1, $2, $3, $4, $5, $6, $7) returning message_id",
-      user_id, channel_id, message.content, message.mood,
+      "($1, $2, $3, $4, $5, $6) returning message_id",
+      user_id, channel_id, message.content,
       std::stol(message.author.str()), std::stol(message.msg_replied_to.str()),
       message.image_descriptions);
 
