@@ -8,5 +8,6 @@ create table message
   , content               text
   , message_snowflake_id  bigint
   , reply_to_snowflake_id bigint
-  , image_descriptions    text[]
+  , image_descriptions    text[] default '{}'
+  , reactions             text[] default '{}'
 );

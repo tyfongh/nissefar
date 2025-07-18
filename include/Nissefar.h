@@ -61,6 +61,7 @@ private:
 
   dpp::task<void> handle_message(const dpp::message_create_t &event);
   dpp::task<void> handle_reaction(const dpp::message_reaction_add_t &event);
+  dpp::task<void> remove_reaction(const dpp::message_reaction_remove_t &event);
   std::string format_message_history(dpp::snowflake channel_id);
   std::string format_replyto_message(const Message &msg);
   std::string generate_text(const std::string &prompt,

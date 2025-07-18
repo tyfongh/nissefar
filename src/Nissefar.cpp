@@ -1,6 +1,7 @@
 #include <Database.h>
 #include <Nissefar.h>
 #include <chrono>
+#include <cstdint>
 #include <random>
 #include <ranges>
 #include <sstream>
@@ -65,8 +66,6 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
       pqxx::array<std::string> image_descriptions =
           message["image_descriptions"].as_sql_array<std::string>();
 
-      bot->log(dpp::ll_info, std::format("Image description size: {}",
-                                         image_descriptions.size()));
       for (int i = 0; i < image_descriptions.size(); ++i) {
         message_history +=
             std::format("\nImage {}, {}", i, image_descriptions[i]);
@@ -570,7 +569,7 @@ void Nissefar::store_message(const Message &message, dpp::guild *server,
       "insert into message (user_id, channel_id, content, "
       "message_snowflake_id, reply_to_snowflake_id, image_descriptions) values "
       "($1, $2, $3, $4, $5, $6) returning message_id",
-      user_id, channel_id, message.content, std::stol(message.author.str()),
+      user_id, channel_id, message.content, std::stol(message.msg_id.str()),
       std::stol(message.msg_replied_to.str()), message.image_descriptions);
 
   bot->log(
@@ -723,12 +722,53 @@ std::string Nissefar::format_chanstat(const pqxx::result res,
 }
 
 dpp::task<void>
+Nissefar::remove_reaction(const dpp::message_reaction_remove_t &event) {
+  std::string emoji{};
+  if (event.reacting_emoji.format().size() > 4)
+    emoji = std::format("<:{}>", event.reacting_emoji.format());
+  else
+    emoji = event.reacting_emoji.format();
+
+  bot->log(dpp::ll_info, std::format("message: {}, reaction removed: {}",
+                                     event.message_id.str(), emoji));
+
+  auto &db = Database::instance();
+  auto res = db.execute(
+      "select message_id from message where message_snowflake_id = $1",
+      std::stol(event.message_id.str()));
+
+  if (!res.empty()) {
+    std::uint64_t message_id = res[0].front().as<std::uint64_t>();
+    auto res = db.execute("update message set reactions = "
+                          "array_remove(reactions, $1) where message_id = $2",
+                          emoji, message_id);
+  }
+
+  co_return;
+}
+
+dpp::task<void>
 Nissefar::handle_reaction(const dpp::message_reaction_add_t &event) {
   std::string emoji{};
   if (event.reacting_emoji.format().size() > 4)
     emoji = std::format("<:{}>", event.reacting_emoji.format());
   else
     emoji = event.reacting_emoji.format();
+
+  bot->log(dpp::ll_info, std::format("message: {}, reaction added: {}",
+                                     event.message_id.str(), emoji));
+
+  auto &db = Database::instance();
+  auto res = db.execute(
+      "select message_id from message where message_snowflake_id = $1",
+      std::stol(event.message_id.str()));
+
+  if (!res.empty()) {
+    std::uint64_t message_id = res[0].front().as<std::uint64_t>();
+    auto res = db.execute("update message set reactions = "
+                          "array_append(reactions, $1) where message_id = $2",
+                          emoji, message_id);
+  }
 
   const std::vector<std::string> message_texts = {
       std::format("<@{}> why {}", event.reacting_user.id.str(), emoji),
@@ -769,6 +809,11 @@ void Nissefar::run() {
   bot->on_message_reaction_add(
       [this](const dpp::message_reaction_add_t &event) -> dpp::task<void> {
         co_return co_await handle_reaction(event);
+      });
+
+  bot->on_message_reaction_remove(
+      [this](const dpp::message_reaction_remove_t &event) -> dpp::task<void> {
+        co_return co_await remove_reaction(event);
       });
 
   bot->log(dpp::ll_info, "Initial process of sheets");
