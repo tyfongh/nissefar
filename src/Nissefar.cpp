@@ -71,8 +71,8 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
         message_history +=
             std::format("\nImage {}, {}", i, image_descriptions[i]);
       }
-      message_history += "\n----------------------\n";
     }
+    message_history += "\n----------------------\n";
   }
   return message_history;
 }
