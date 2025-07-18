@@ -2,6 +2,7 @@
 #include <Nissefar.h>
 #include <chrono>
 #include <random>
+#include <ranges>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -26,53 +27,53 @@ Nissefar::Nissefar() {
   bot->log(dpp::ll_info, "Bot initialized");
 }
 
-// This function will add a message to the channel ringbuffer
-// If max_history is reached it will remove the oldest.
-
-void Nissefar::add_channel_message(dpp::snowflake channel_id,
-                                   const Message &msg) {
-  auto &buffer = channel_history[channel_id];
-  if (buffer.size() == config.max_history)
-    buffer.pop_front();
-  buffer.push_back(msg);
-}
-
-// Retrieve the channel history as an iterable data construct
-
-const std::deque<Message> &
-Nissefar::get_channel_history(dpp::snowflake channel_id) const {
-  static const std::deque<Message> empty;
-  auto history = channel_history.find(channel_id);
-  if (history == channel_history.end())
-    return empty;
-  return history->second;
-}
-
-// Format the message history for the bots context
+// Pull channel message history from the SQL database instead of deque
+// in memory database. Will persist through reboots.
 
 std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
   std::string message_history{};
-  auto msgs = get_channel_history(channel_id);
-  if (msgs.size() > 0)
-    message_history = std::string("Channel message history:");
-  for (auto msg : get_channel_history(channel_id)) {
-    std::string image_descs{};
-    int i = 0;
-    for (auto image_desc : msg.image_descriptions) {
-      i++;
-      image_descs.append(std::format("\nImage {}: {}", i, image_desc));
-    }
 
-    message_history += std::format("\n----------------------\n"
-                                   "Message id: {}\n"
-                                   "Reply to message id: {}\n"
-                                   "Author: {}\n"
-                                   "Message content:{}{}",
-                                   msg.msg_id.str(), msg.msg_replied_to.str(),
-                                   msg.author.str(), msg.content, image_descs);
+  auto &db = Database::instance();
+  auto res = db.execute("select m.message_snowflake_id "
+                        "     , m.reply_to_snowflake_id "
+                        "     , u.user_snowflake_id "
+                        "     , m.content "
+                        "     , m.image_descriptions "
+                        "from message m "
+                        "inner join discord_user u on (u.user_id = m.user_id) "
+                        "inner join channel c on (c.channel_id = m.channel_id) "
+                        "where c.channel_snowflake_id = $1 "
+                        "order by m.message_id desc limit $2",
+                        std::stol(channel_id.str()), config.max_history);
+  if (!res.empty()) {
+    message_history = "Channel message history:";
+
+    // Need to reverse here due to the nature of the best, the SQL server picks
+    // the top 20 but to do so it orders the messages from last to first.
+
+    for (auto message : res | std::views::reverse) {
+      message_history +=
+          std::format("\n----------------------\n"
+                      "Message id: {}\n"
+                      "Reply to message id: {}\n"
+                      "Author: {}\n"
+                      "Message content: {}",
+                      message["message_snowflake_id"].as<std::string>(),
+                      message["reply_to_snowflake_id"].as<std::string>(),
+                      message["user_snowflake_id"].as<std::string>(),
+                      message["content"].as<std::string>());
+      pqxx::array<std::string> image_descriptions =
+          message["image_descriptions"].as_sql_array<std::string>();
+
+      bot->log(dpp::ll_info, std::format("Image description size: {}",
+                                         image_descriptions.size()));
+      for (int i = 0; i < image_descriptions.size(); ++i) {
+        message_history +=
+            std::format("\nImage {}, {}", i, image_descriptions[i]);
+      }
+      message_history += "\n----------------------\n";
+    }
   }
-  if (!message_history.empty())
-    message_history += "\n----------------------";
   return message_history;
 }
 
@@ -225,10 +226,6 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
   Message last_message{event.msg.id, event.msg.message_reference.message_id,
                        event.msg.content, event.msg.author.id, image_desc};
 
-  if (event.msg.author.id != bot->me.id)
-    store_message(last_message, current_server, current_chan,
-                  event.msg.author.format_username());
-
   if (answer) {
     std::string prompt =
         std::format("\nBot user id: {}\n", bot->me.id.str()) +
@@ -244,7 +241,10 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
                 true);
   }
 
-  add_channel_message(event.msg.channel_id, last_message);
+  // Need to store last to avoid including in message history + need to include
+  // bot in data
+  store_message(last_message, current_server, current_chan,
+                event.msg.author.format_username());
 
   co_return;
 }
@@ -570,9 +570,8 @@ void Nissefar::store_message(const Message &message, dpp::guild *server,
       "insert into message (user_id, channel_id, content, "
       "message_snowflake_id, reply_to_snowflake_id, image_descriptions) values "
       "($1, $2, $3, $4, $5, $6) returning message_id",
-      user_id, channel_id, message.content,
-      std::stol(message.author.str()), std::stol(message.msg_replied_to.str()),
-      message.image_descriptions);
+      user_id, channel_id, message.content, std::stol(message.author.str()),
+      std::stol(message.msg_replied_to.str()), message.image_descriptions);
 
   bot->log(
       dpp::ll_info,
@@ -638,10 +637,11 @@ Nissefar::handle_slashcommand(const dpp::slashcommand_t &event) {
           "inner join discord_user u on (m.user_id = u.user_id) "
           "inner join channel c on (m.channel_id = c.channel_id) "
           "where c.channel_snowflake_id = $1 "
+          "and u.user_snowflake_id != $2 "
           "group by u.user_name "
           "order by nmsgs desc, nimages desc "
           " limit 20",
-          std::stol(channel.id.str()));
+          std::stol(channel.id.str()), std::stol(bot->me.id.str()));
 
       if (res.empty())
         event.edit_original_response(

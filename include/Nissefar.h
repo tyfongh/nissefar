@@ -3,12 +3,10 @@
 
 #include <Config.h>
 #include <chrono>
-#include <deque>
 #include <dpp/dpp.h>
 #include <ollama.hpp>
 #include <pqxx/pqxx>
 #include <string_view>
-#include <unordered_map>
 
 struct Message {
   const dpp::snowflake msg_id;
@@ -30,7 +28,6 @@ private:
 
   Config config{};
   std::unique_ptr<dpp::cluster> bot;
-  std::unordered_map<dpp::snowflake, std::deque<Message>> channel_history;
 
   enum class GenerationType { TextReply, Diff, ImageDescription };
 
@@ -64,9 +61,6 @@ private:
 
   dpp::task<void> handle_message(const dpp::message_create_t &event);
   dpp::task<void> handle_reaction(const dpp::message_reaction_add_t &event);
-  void add_channel_message(dpp::snowflake channel_id, const Message &msg);
-  const std::deque<Message> &
-  get_channel_history(dpp::snowflake channel_id) const;
   std::string format_message_history(dpp::snowflake channel_id);
   std::string format_replyto_message(const Message &msg);
   std::string generate_text(const std::string &prompt,
@@ -81,11 +75,6 @@ private:
                                  std::string weblink);
   std::string diff(const std::string olddata, const std::string newdata,
                    const int sheet_id);
-  std::string get_message_mood(const std::string content,
-                               const ollama::images &imagelist);
-  void add_message_reaction(const std::string mood,
-                            const dpp::snowflake channel_id,
-                            const dpp::snowflake message_id);
 
   void process_diffs();
   void store_message(const Message &message, dpp::guild *server,
