@@ -260,6 +260,27 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
   co_return;
 }
 
+// Routine to handle message edits
+
+dpp::task<void>
+Nissefar::handle_message_update(const dpp::message_update_t &event) {
+
+  bot->log(dpp::ll_info, std::format("Message with snowflake id {} was updated to {}", event.msg.id.str(), event.msg.content));
+
+  auto &db = Database::instance();
+  auto res = db.execute(
+      "select message_id from message where message_snowflake_id = $1",
+      std::stol(event.msg.id.str()));
+
+  if (!res.empty()) {
+    std::uint64_t message_id = res[0].front().as<std::uint64_t>();
+    auto res = db.execute("update message set content = $1 "
+                          "where message_id = $2",
+                          event.msg.content, message_id);
+  }
+  co_return;
+}
+
 // Use the diff command to compare data between two strings as a unified
 // diff.
 
@@ -818,6 +839,11 @@ void Nissefar::run() {
         co_return co_await handle_message(event);
       });
 
+  bot->on_message_update(
+      [this](const dpp::message_update_t &event) -> dpp::task<void> {
+        co_return co_await handle_message_update(event);
+      });
+
   bot->on_message_reaction_add(
       [this](const dpp::message_reaction_add_t &event) -> dpp::task<void> {
         co_return co_await handle_reaction(event);
@@ -849,12 +875,12 @@ void Nissefar::run() {
       },
       300);
 
-    bot->log(dpp::ll_info, "Starting youtube timer, 1500 seconds");
-    bot->start_timer(
-        [this](const dpp::timer &timer) -> dpp::task<void> {
-          co_return co_await process_youtube(false);
-        },
-        1500);
+  bot->log(dpp::ll_info, "Starting youtube timer, 1500 seconds");
+  bot->start_timer(
+      [this](const dpp::timer &timer) -> dpp::task<void> {
+        co_return co_await process_youtube(false);
+      },
+      1500);
 
   bot->log(dpp::ll_info, "Starting bot..");
   bot->start(dpp::st_wait);

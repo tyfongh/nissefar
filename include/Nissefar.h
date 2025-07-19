@@ -60,6 +60,7 @@ private:
   // Methods
 
   dpp::task<void> handle_message(const dpp::message_create_t &event);
+  dpp::task<void> handle_message_update(const dpp::message_update_t &event);
   dpp::task<void> handle_reaction(const dpp::message_reaction_add_t &event);
   dpp::task<void> remove_reaction(const dpp::message_reaction_remove_t &event);
   std::string format_message_history(dpp::snowflake channel_id);
