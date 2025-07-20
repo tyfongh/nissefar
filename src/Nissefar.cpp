@@ -35,12 +35,12 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
   std::string message_history{};
 
   auto &db = Database::instance();
-  auto res = db.execute("select m.message_snowflake_id "
+  auto res = db.execute("select m.message_id "
+                        "     , m.message_snowflake_id "
                         "     , m.reply_to_snowflake_id "
                         "     , u.user_snowflake_id "
                         "     , m.content "
                         "     , m.image_descriptions "
-                        "     , m.reactions "
                         "from message m "
                         "inner join discord_user u on (u.user_id = m.user_id) "
                         "inner join channel c on (c.channel_id = m.channel_id) "
@@ -65,13 +65,20 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
                       message["user_snowflake_id"].as<std::string>(),
                       message["content"].as<std::string>());
 
-      pqxx::array<std::string> reactions =
-          message["reactions"].as_sql_array<std::string>();
+      auto react_res =
+          db.execute("select u.user_snowflake_id "
+                     "     , r.reaction "
+                     "from reaction r "
+                     "inner join discord_user u on (u.user_id = r.user_id) "
+                     "where r.message_id = $1",
+                     message["message_id"].as<std::uint64_t>());
 
-      if (reactions.size() > 0) {
-        message_history += "\nReactions: ";
-        for (int i = 0; i < reactions.size(); ++i) {
-          message_history += std::format("{} ", reactions[i]);
+      if (!react_res.empty()) {
+        for (auto reaction : react_res) {
+          message_history +=
+              std::format("\nReaction by {}: {}",
+                          reaction["user_snowflake_id"].as<std::string>(),
+                          reaction["reaction"].as<std::string>());
         }
       }
 
@@ -133,10 +140,10 @@ std::string Nissefar::generate_text(const std::string &prompt,
   ollama::options opts;
 
   opts["num_predict"] = 1000;
-  //opts["temperature"] = 1;
-  //opts["top_k"] = 64;
-  //opts["top_p"] = 0.95;
-  //opts["min_p"] = 0;
+  // opts["temperature"] = 1;
+  // opts["top_k"] = 64;
+  // opts["top_p"] = 0.95;
+  // opts["min_p"] = 0;
 
   req["prompt"] = prompt;
   req["options"] = opts["options"];
@@ -252,8 +259,8 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
                 true);
   }
 
-  // Need to store last to avoid including in message history + need to include
-  // bot in data
+  // Need to store last to avoid including in message history + need to
+  // include bot in data
   store_message(last_message, current_server, current_chan,
                 event.msg.author.format_username());
 
@@ -265,7 +272,9 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
 dpp::task<void>
 Nissefar::handle_message_update(const dpp::message_update_t &event) {
 
-  bot->log(dpp::ll_info, std::format("Message with snowflake id {} was updated to {}", event.msg.id.str(), event.msg.content));
+  bot->log(dpp::ll_info,
+           std::format("Message with snowflake id {} was updated to {}",
+                       event.msg.id.str(), event.msg.content));
 
   auto &db = Database::instance();
   auto res = db.execute(
@@ -519,7 +528,8 @@ dpp::task<void> Nissefar::process_youtube(bool first_run) {
         std::string prompt =
             "Bjørn Nyland just started a live stream on youtube. Make your "
             "comment an "
-            "announcement of that. Below are the titles of the live stream(s). "
+            "announcement of that. Below are the titles of the live "
+            "stream(s). "
             "Do not include any link to the stream. Do not include any user "
             "ids.";
 
@@ -600,7 +610,8 @@ void Nissefar::store_message(const Message &message, dpp::guild *server,
 
   res = db.execute(
       "insert into message (user_id, channel_id, content, "
-      "message_snowflake_id, reply_to_snowflake_id, image_descriptions) values "
+      "message_snowflake_id, reply_to_snowflake_id, image_descriptions) "
+      "values "
       "($1, $2, $3, $4, $5, $6) returning message_id",
       user_id, channel_id, message.content, std::stol(message.msg_id.str()),
       std::stol(message.msg_replied_to.str()), message.image_descriptions);
@@ -766,15 +777,24 @@ Nissefar::remove_reaction(const dpp::message_reaction_remove_t &event) {
                                      event.message_id.str(), emoji));
 
   auto &db = Database::instance();
-  auto res = db.execute(
-      "select message_id from message where message_snowflake_id = $1",
-      std::stol(event.message_id.str()));
 
-  if (!res.empty()) {
-    std::uint64_t message_id = res[0].front().as<std::uint64_t>();
-    auto res = db.execute("update message set reactions = "
-                          "array_remove(reactions, $1) where message_id = $2",
-                          emoji, message_id);
+  auto react_res =
+      db.execute("select r.reaction_id "
+                 "from reaction r "
+                 "inner join message m on (m.message_id = r.message_id) "
+                 "inner join discord_user u on (u.user_id = r.user_id) "
+                 "where u.user_snowflake_id = $1 "
+                 "and m.message_snowflake_id = $2 "
+                 "and r.reaction = $3",
+                 std::stol(event.reacting_user_id.str()),
+                 std::stol(event.message_id.str()), emoji);
+
+  if (!react_res.empty()) {
+    std::uint64_t react_id = react_res[0].front().as<std::uint64_t>();
+    bot->log(dpp::ll_info, std::format("Deleting reaction id {}", react_id));
+
+    auto del_res =
+        db.execute("delete from reaction where reaction_id = $1", react_id);
   }
 
   co_return;
@@ -788,19 +808,30 @@ Nissefar::handle_reaction(const dpp::message_reaction_add_t &event) {
   else
     emoji = event.reacting_emoji.format();
 
-  bot->log(dpp::ll_info, std::format("message: {}, reaction added: {}",
-                                     event.message_id.str(), emoji));
+  bot->log(dpp::ll_info,
+           std::format("message: {}, user: {}, reaction added: {}",
+                       event.message_id.str(), event.reacting_user.id.str(),
+                       emoji));
 
   auto &db = Database::instance();
-  auto res = db.execute(
+  auto msg_res = db.execute(
       "select message_id from message where message_snowflake_id = $1",
       std::stol(event.message_id.str()));
 
-  if (!res.empty()) {
-    std::uint64_t message_id = res[0].front().as<std::uint64_t>();
-    auto res = db.execute("update message set reactions = "
-                          "array_append(reactions, $1) where message_id = $2",
-                          emoji, message_id);
+  if (!msg_res.empty()) {
+    std::uint64_t message_id = msg_res[0].front().as<std::uint64_t>();
+
+    auto user_res = db.execute("select user_id from discord_user "
+                               "where user_snowflake_id = $1",
+                               std::stol(event.reacting_user.id.str()));
+    if (!user_res.empty()) {
+      std::uint64_t user_id = user_res[0].front().as<std::uint64_t>();
+
+      auto up_res =
+          db.execute("insert into reaction (message_id, user_id, reaction) "
+                     "values ($1, $2, $3)",
+                     message_id, user_id, emoji);
+    }
   }
 
   const std::vector<std::string> message_texts = {
