@@ -133,10 +133,10 @@ std::string Nissefar::generate_text(const std::string &prompt,
   ollama::options opts;
 
   opts["num_predict"] = 1000;
-  opts["temperature"] = 1;
-  opts["top_k"] = 64;
-  opts["top_p"] = 0.95;
-  opts["min_p"] = 0;
+  //opts["temperature"] = 1;
+  //opts["top_k"] = 64;
+  //opts["top_p"] = 0.95;
+  //opts["min_p"] = 0;
 
   req["prompt"] = prompt;
   req["options"] = opts["options"];
