@@ -808,11 +808,6 @@ Nissefar::handle_reaction(const dpp::message_reaction_add_t &event) {
   else
     emoji = event.reacting_emoji.format();
 
-  bot->log(dpp::ll_info,
-           std::format("message: {}, user: {}, reaction added: {}",
-                       event.message_id.str(), event.reacting_user.id.str(),
-                       emoji));
-
   auto &db = Database::instance();
   auto msg_res = db.execute(
       "select message_id from message where message_snowflake_id = $1",
@@ -831,6 +826,10 @@ Nissefar::handle_reaction(const dpp::message_reaction_add_t &event) {
           db.execute("insert into reaction (message_id, user_id, reaction) "
                      "values ($1, $2, $3)",
                      message_id, user_id, emoji);
+      bot->log(dpp::ll_info,
+               std::format("message: {}, user: {}, reaction added: {}",
+                           message_id, event.reacting_user.format_username(),
+                           emoji));
     }
   }
 
