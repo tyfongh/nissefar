@@ -2,6 +2,8 @@
 #include <Nissefar.h>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <ctime>
 #include <random>
 #include <ranges>
 #include <sstream>
@@ -123,7 +125,7 @@ std::string Nissefar::format_replyto_message(const Message &msg) {
                   "----------------------\n"
                   "Message id: {}\nReply to message id: {}\n"
                   "Author: {}\n"
-                  "Message content:{}"
+                  "Message content: {}"
                   "\n----------------------\n",
                   msg.msg_id.str(), msg.msg_replied_to.str(), msg.author.str(),
                   msg.content);
@@ -245,9 +247,13 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
                        event.msg.content, event.msg.author.id, image_desc};
 
   if (answer) {
+
     std::string prompt =
         std::format("\nBot user id: {}\n", bot->me.id.str()) +
         std::format("Channel name: \"{}\"\n", current_chan->name) +
+        std::format("Current time: {:%Y-%m-%d %H:%M}\n",
+                    std::chrono::zoned_time{std::chrono::current_zone(),
+                                            std::chrono::system_clock::now()}) +
         format_message_history(event.msg.channel_id) +
         format_replyto_message(last_message);
 
