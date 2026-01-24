@@ -64,6 +64,7 @@ Config::Config(bool valid, std::string discord_token,
                std::string db_connection_string, int max_history)
     : discord_token(std::move(discord_token)),
       google_api_key(std::move(google_api_key)),
+      max_history(max_history),
       system_prompt(std::move(system_prompt)),
       diff_system_prompt(std::move(diff_system_prompt)),
       image_description_system_prompt(
@@ -72,8 +73,8 @@ Config::Config(bool valid, std::string discord_token,
       comparison_model(std::move(comparison_model)),
       vision_model(std::move(vision_model)),
       image_description_model(std::move(image_description_model)),
-      db_connection_string(std::move(db_connection_string)), is_valid(valid),
-      max_history(max_history) {
+      db_connection_string(std::move(db_connection_string)),
+      is_valid(valid) {
   directory_url = std::format("https://www.googleapis.com/drive/v3/"
                               "files?q='1HOwktdiZmm40atGPwymzrxErMi1ZrKPP'+in+"
                               "parents&key={}&fields=files("
