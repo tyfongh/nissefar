@@ -104,6 +104,7 @@ Nissefar::generate_images(std::vector<dpp::attachment> attachments) {
   ollama::images imagelist;
   for (auto attachment : attachments) {
     if (attachment.content_type == "image/jpeg" ||
+        attachment.content_type == "image/webp" ||
         attachment.content_type == "image/png") {
       dpp::http_request_completion_t attachment_data =
           co_await bot->co_request(attachment.url, dpp::m_get);

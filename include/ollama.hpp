@@ -35168,7 +35168,7 @@ class Ollama
             this->setReadTimeout(120);
         }
 
-        Ollama(): Ollama("http://localhost:11434") {}
+        Ollama(): Ollama("http://192.168.1.11:11434") {}
         ~Ollama() { delete this->cli; }
 
     ollama::response generate(const std::string& model,const std::string& prompt, const ollama::response& context, const json& options=nullptr, const std::vector<std::string>& images=std::vector<std::string>())
