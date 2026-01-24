@@ -2,8 +2,12 @@
 #include <Nissefar.h>
 #include <chrono>
 #include <cstdint>
+<<<<<<< HEAD
 #include <cstdlib>
 #include <ctime>
+=======
+#include <algorithm>
+>>>>>>> d126b69 (More robust diffing + sorting to avoid noise)
 #include <random>
 #include <ranges>
 #include <sstream>
@@ -303,6 +307,39 @@ Nissefar::handle_message_update(const dpp::message_update_t &event) {
 std::string Nissefar::diff(const std::string olddata, const std::string newdata,
                            const int sheet_id) {
 
+  // Helper to sort CSV content: keep header, sort the rest
+  auto sort_csv = [](const std::string &raw) -> std::string {
+    if (raw.empty())
+      return "";
+
+    std::stringstream ss(raw);
+    std::string line, header, result;
+    std::vector<std::string> rows;
+
+    // Grab header
+    if (std::getline(ss, header)) {
+      result += header + "\n";
+    }
+    // Grab remaining rows
+    while (std::getline(ss, line)) {
+      if (!line.empty()) {
+        rows.push_back(line);
+      }
+    }
+
+    // Sort rows alphabetically to ignore positional changes
+    std::ranges::sort(rows);
+
+    // Reassemble
+    for (const auto &row : rows) {
+      result += row + "\n";
+    }
+    return result;
+  };
+
+  std::string sorted_old = sort_csv(olddata);
+  std::string sorted_new = sort_csv(newdata);
+
   std::array<char, 128> buffer;
   std::string result;
 
@@ -312,16 +349,17 @@ std::string Nissefar::diff(const std::string olddata, const std::string newdata,
 
   std::string newtempfile = std::format("{}/nissenew{}", tempfiledir, sheet_id);
 
-  std::ofstream oldfile(oldtempfile);
-  if (oldfile.is_open()) {
-    oldfile << olddata;
-    oldfile.flush();
-  }
+  // Use scope to ensure files are closed and flushed before diff runs
+  {
+    std::ofstream oldfile(oldtempfile);
+    if (oldfile.is_open()) {
+      oldfile << sorted_old;
+    }
 
-  std::ofstream newfile(newtempfile);
-  if (newfile.is_open()) {
-    newfile << newdata;
-    newfile.flush();
+    std::ofstream newfile(newtempfile);
+    if (newfile.is_open()) {
+      newfile << sorted_new;
+    }
   }
 
   // Easiest way to compare the file is just to pipe ye olde diff command
@@ -331,8 +369,12 @@ std::string Nissefar::diff(const std::string olddata, const std::string newdata,
       popen(std::format("diff -u {} {}", oldtempfile, newtempfile).c_str(),
             "r"),
       [](FILE *f) -> void { std::ignore = pclose(f); });
-  if (!pipe)
+  
+  if (!pipe) {
+    std::filesystem::remove(oldtempfile);
+    std::filesystem::remove(newtempfile);
     return std::string("Kunne ikke kjøre diff pipe");
+  }
 
   while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) !=
          nullptr)
