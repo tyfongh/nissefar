@@ -363,14 +363,22 @@ dpp::task<void> Nissefar::process_sheets(const std::string filename,
 
     // Google docs will often redirect to a new url with the location
     // headers and status 307 Make sure to try until a 200 response is hit.
-    // Vulnable to redirect "bomb", need to fix
     bool is_done = false;
+    int redirect_count = 0;
+    constexpr int max_redirects = 10;
+
     while (!is_done) {
       auto sheet_resp = co_await bot->co_request(sheet_url, dpp::m_get);
 
       // Found 307, try again with location
       if (sheet_resp.status == 307) {
-        sheet_url = sheet_resp.headers.find("location")->second;
+        if (++redirect_count > max_redirects) {
+          bot->log(dpp::ll_warning,
+                   std::format("Too many redirects for sheet {}", sheet_id));
+          is_done = true;
+        } else {
+          sheet_url = sheet_resp.headers.find("location")->second;
+        }
 
         // Found actual data, proceed to check
       } else if (sheet_resp.status == 200) {
