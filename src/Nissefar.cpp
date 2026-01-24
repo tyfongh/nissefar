@@ -444,12 +444,12 @@ dpp::task<void> Nissefar::process_google_docs() {
   auto directory_data = nlohmann::json::parse(response.body.data());
 
   for (auto filedata : directory_data["files"]) {
-    std::string datestring = filedata["modifiedTime"].front();
-    std::string filename = filedata["name"].front();
+    std::string datestring = filedata["modifiedTime"].get<std::string>();
+    std::string filename = filedata["name"].get<std::string>();
     if (filename != "TB test results" && filename != "Charging curves")
       break;
-    const std::string file_id = filedata["id"].front();
-    const std::string weblink = filedata["webViewLink"].front();
+    const std::string file_id = filedata["id"].get<std::string>();
+    const std::string weblink = filedata["webViewLink"].get<std::string>();
 
     std::chrono::sys_time<std::chrono::milliseconds> tp;
 
@@ -512,7 +512,7 @@ dpp::task<void> Nissefar::process_youtube(bool first_run) {
   auto live_data = nlohmann::json::parse(res.body.data());
 
   if (live_data.find("pageInfo") != live_data.end()) {
-    int live_count = live_data["pageInfo"]["totalResults"].front();
+    int live_count = live_data["pageInfo"]["totalResults"].get<int>();
     bot->log(dpp::ll_info, std::format("Live data: {}", live_count));
 
     if (live_count == 0 && config.is_streaming) {
@@ -529,8 +529,8 @@ dpp::task<void> Nissefar::process_youtube(bool first_run) {
       if (!first_run) {
         std::vector<std::pair<std::string, std::string>> live_streams{};
         for (auto video_item : live_data["items"])
-          live_streams.push_back({video_item["id"]["videoId"].front(),
-                                  video_item["snippet"]["title"].front()});
+          live_streams.push_back({video_item["id"]["videoId"].get<std::string>(),
+                                  video_item["snippet"]["title"].get<std::string>()});
 
         std::string prompt =
             "Bjørn Nyland just started a live stream on youtube. Make your "
