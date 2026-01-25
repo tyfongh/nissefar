@@ -20,6 +20,7 @@ struct Diffdata {
   std::string diffdata;
   std::string weblink;
   std::string header;
+  std::string sheet_name;
 };
 
 class Nissefar {
@@ -36,26 +37,6 @@ private:
 
   std::map<std::string, std::map<int, std::string>> sheet_data;
   std::map<std::string, std::map<int, Diffdata>> sheet_diffs;
-
-  // To avoid messing with oauth2, just list all documents + sheets
-
-  std::map<std::string_view, std::map<int, std::string_view>> sheet_names = {
-      {"TB test results",
-       {{0, "Banana"},
-        {1865415711, "Weight"},
-        {378787627, "Acceleration"},
-        {2069101638, "Noise"},
-        {26964202, "Braking"},
-        {735351678, "Range"},
-        {866693557, "Sunday"},
-        {15442336, "1000 km"},
-        {1229113299, "500 km"},
-        {2118810793, "Geilo"},
-        {244400016, "Degradation"},
-        {52159941, "Zero mile"},
-        {478179452, "Arctic Circle"},
-        {1066718131, "Bangkok"}}},
-      {"Charging curves", {{1593904708, "Charging curve"}}}};
 
   // Methods
 

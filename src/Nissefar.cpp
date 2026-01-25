@@ -1,13 +1,17 @@
 #include <Database.h>
 #include <Nissefar.h>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
+<<<<<<< HEAD
 <<<<<<< HEAD
 #include <cstdlib>
 #include <ctime>
 =======
 #include <algorithm>
 >>>>>>> d126b69 (More robust diffing + sorting to avoid noise)
+=======
+>>>>>>> dbca3e9 (Fetch sheet names and IDs from google instead)
 #include <random>
 #include <ranges>
 #include <sstream>
@@ -369,7 +373,7 @@ std::string Nissefar::diff(const std::string olddata, const std::string newdata,
       popen(std::format("diff -u {} {}", oldtempfile, newtempfile).c_str(),
             "r"),
       [](FILE *f) -> void { std::ignore = pclose(f); });
-  
+
   if (!pipe) {
     std::filesystem::remove(oldtempfile);
     std::filesystem::remove(newtempfile);
@@ -396,7 +400,24 @@ dpp::task<void> Nissefar::process_sheets(const std::string filename,
 
   bot->log(dpp::ll_info, std::format("Processing file {}", filename));
 
-  for (const auto &[sheet_id, sheet_name] : sheet_names[filename]) {
+  std::string file_url =
+      std::format("https://sheets.googleapis.com/v4/spreadsheets/"
+                  "{}?key={}&fields=sheets.properties(sheetId,title)",
+                  file_id, config.google_api_key);
+
+  auto file_resp = co_await bot->co_request(file_url, dpp::m_get);
+
+  if (file_resp.status != 200) {
+    bot->log(dpp::ll_error, std::format("Error fetching sheets for file {}: {}",
+                                        filename, file_resp.status));
+    co_return;
+  }
+
+  auto file_data = nlohmann::json::parse(file_resp.body.data());
+
+  for (auto sheet : file_data["sheets"]) {
+    int sheet_id = sheet["properties"]["sheetId"].get<int>();
+    std::string sheet_name = sheet["properties"]["title"].get<std::string>();
 
     std::string sheet_url =
         std::format("https://docs.google.com/spreadsheets/d/{}/"
@@ -446,7 +467,7 @@ dpp::task<void> Nissefar::process_sheets(const std::string filename,
 
             sheet_diffs[filename][sheet_id] = Diffdata{
                 diff(sheet_data[filename][sheet_id], newdata, sheet_id),
-                weblink, header};
+                weblink, header, sheet_name};
             sheet_data[filename][sheet_id] = newdata;
           }
         }
@@ -471,7 +492,7 @@ void Nissefar::process_diffs() {
     for (auto &[sheet_id, diffdata] : diffmap) {
       auto prompt = std::format(
           "Filename: {}\nSheet name: {}\nCSV Header: {}\nDiff:\n{}", filename,
-          sheet_names[filename][sheet_id], diffdata.header, diffdata.diffdata);
+          diffdata.sheet_name, diffdata.header, diffdata.diffdata);
       auto answer =
           generate_text(prompt, ollama::images{}, GenerationType::Diff);
       answer += std::format("\n{}", diffdata.weblink);
@@ -497,7 +518,7 @@ dpp::task<void> Nissefar::process_google_docs() {
     std::string datestring = filedata["modifiedTime"].get<std::string>();
     std::string filename = filedata["name"].get<std::string>();
     if (filename != "TB test results" && filename != "Charging curves")
-      break;
+      continue;
     const std::string file_id = filedata["id"].get<std::string>();
     const std::string weblink = filedata["webViewLink"].get<std::string>();
 
@@ -579,8 +600,9 @@ dpp::task<void> Nissefar::process_youtube(bool first_run) {
       if (!first_run) {
         std::vector<std::pair<std::string, std::string>> live_streams{};
         for (auto video_item : live_data["items"])
-          live_streams.push_back({video_item["id"]["videoId"].get<std::string>(),
-                                  video_item["snippet"]["title"].get<std::string>()});
+          live_streams.push_back(
+              {video_item["id"]["videoId"].get<std::string>(),
+               video_item["snippet"]["title"].get<std::string>()});
 
         std::string prompt =
             "Bjørn Nyland just started a live stream on youtube. Make your "
