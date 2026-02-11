@@ -3,15 +3,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
-<<<<<<< HEAD
-<<<<<<< HEAD
 #include <cstdlib>
 #include <ctime>
-=======
 #include <algorithm>
->>>>>>> d126b69 (More robust diffing + sorting to avoid noise)
-=======
->>>>>>> dbca3e9 (Fetch sheet names and IDs from google instead)
 #include <random>
 #include <ranges>
 #include <sstream>
