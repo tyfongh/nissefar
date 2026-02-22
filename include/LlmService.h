@@ -23,6 +23,7 @@ public:
 private:
   const Config &config;
   dpp::cluster &bot;
+  mutable Ollama ollama_client;
 };
 
 #endif // LLMSERVICE_H

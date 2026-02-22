@@ -1,7 +1,10 @@
 #include <LlmService.h>
 
 LlmService::LlmService(const Config &config, dpp::cluster &bot)
-    : config(config), bot(bot) {}
+    : config(config), bot(bot), ollama_client(config.ollama_server_url) {
+  ollama_client.setReadTimeout(360);
+  ollama_client.setWriteTimeout(360);
+}
 
 dpp::task<ollama::images> LlmService::generate_images(
     const std::vector<dpp::attachment> &attachments) const {
@@ -66,7 +69,7 @@ std::string LlmService::generate_text(const std::string &prompt,
 
   std::string answer{};
   try {
-    answer = ollama::chat(model, messages, opts);
+    answer = ollama_client.chat(model, messages, opts);
   } catch (ollama::exception e) {
     answer = std::format("Exception running llm: {}", e.what());
   }

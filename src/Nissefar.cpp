@@ -4,6 +4,7 @@
 #include <LlmService.h>
 #include <Nissefar.h>
 #include <YoutubeService.h>
+#include <dpp/misc-enum.h>
 #include <stdexcept>
 
 Nissefar::Nissefar() {
@@ -17,16 +18,16 @@ Nissefar::Nissefar() {
 
   // Allow for some minutes of LLM generation
 
-  ollama::setServerURL(config.ollama_server_url);
-  ollama::setReadTimeout(360);
-  ollama::setWriteTimeout(360);
+  bot->log(dpp::ll_info,
+           std::format("Ollama server url: {}", config.ollama_server_url));
 
   llm_service = std::make_unique<LlmService>(config, *bot);
   google_docs_service =
       std::make_unique<GoogleDocsService>(config, *bot, *llm_service);
   discord_event_service = std::make_unique<DiscordEventService>(
       config, *bot, *llm_service, *google_docs_service);
-  youtube_service = std::make_unique<YoutubeService>(config, *bot, *llm_service);
+  youtube_service =
+      std::make_unique<YoutubeService>(config, *bot, *llm_service);
 
   bot->log(dpp::ll_info, "Bot initialized");
 }
