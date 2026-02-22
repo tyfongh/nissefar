@@ -99,6 +99,51 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
   return message_history;
 }
 
+std::string Nissefar::format_sheet_context() {
+  std::string context{};
+
+  if (sheet_data.empty()) {
+    return context;
+  }
+
+  context = "Google Sheets context:";
+
+  for (const auto &[filename, tabs] : sheet_data) {
+    if (filename == "Charging curves") {
+      continue;
+    }
+
+    if (tabs.empty()) {
+      continue;
+    }
+
+    for (const auto &[sheet_id, csv_data] : tabs) {
+      std::string sheet_name = "Unknown";
+      std::string header = "";
+
+      auto file_meta = sheet_metadata.find(filename);
+      if (file_meta != sheet_metadata.end()) {
+        auto tab_meta = file_meta->second.find(sheet_id);
+        if (tab_meta != file_meta->second.end()) {
+          sheet_name = tab_meta->second.sheet_name;
+          header = tab_meta->second.header;
+        }
+      }
+
+      context += std::format(
+          "\n----------------------\n"
+          "File: {}\n"
+          "Tab: {} (gid: {})\n"
+          "Header: {}\n"
+          "CSV data:\n{}",
+          filename, sheet_name, sheet_id, header, csv_data);
+    }
+  }
+
+  context += "\n----------------------\n";
+  return context;
+}
+
 // Fetch image data and encode them for the LLM
 
 dpp::task<ollama::images>
@@ -257,6 +302,7 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
         std::format("Current time: {:%Y-%m-%d %H:%M}\n",
                     std::chrono::zoned_time{std::chrono::current_zone(),
                                             std::chrono::system_clock::now()}) +
+        format_sheet_context() +
         format_message_history(event.msg.channel_id) +
         format_replyto_message(last_message);
 
@@ -440,24 +486,23 @@ dpp::task<void> Nissefar::process_sheets(const std::string filename,
         // Found actual data, proceed to check
       } else if (sheet_resp.status == 200) {
 
+        auto newdata = std::format("{}\n", sheet_resp.body.data());
+
+        std::istringstream nds(newdata);
+        std::string header{};
+        std::getline(nds, header);
+        sheet_metadata[filename][sheet_id] = SheetTabMetadata{sheet_name,
+                                                              header};
+
         // If we do not have this data before (probably first run)
         if (sheet_data[filename][sheet_id].empty()) {
-          sheet_data[filename][sheet_id] =
-              std::format("{}\n", sheet_resp.body.data());
+          sheet_data[filename][sheet_id] = newdata;
 
           // Else do the comparison
         } else {
-          if (sheet_data[filename][sheet_id] !=
-              std::format("{}\n", sheet_resp.body.data())) {
+          if (sheet_data[filename][sheet_id] != newdata) {
             bot->log(dpp::ll_info,
                      std::format("The sheet \"{}\" has changed", sheet_name));
-
-            // Extract the CSV header of the file
-            auto newdata = std::format("{}\n", sheet_resp.body.data());
-
-            std::istringstream nds(newdata);
-            std::string header{};
-            std::getline(nds, header);
 
             sheet_diffs[filename][sheet_id] = Diffdata{
                 diff(sheet_data[filename][sheet_id], newdata, sheet_id),
