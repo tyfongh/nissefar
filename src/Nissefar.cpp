@@ -190,6 +190,7 @@ std::string Nissefar::generate_text(const std::string &prompt,
   ollama::options opts;
 
   opts["num_predict"] = 1000;
+  opts["num_ctx"] = 40000;
   // opts["temperature"] = 1;
   // opts["top_k"] = 64;
   // opts["top_p"] = 0.95;
