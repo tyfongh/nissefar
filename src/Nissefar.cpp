@@ -1,4 +1,7 @@
 #include <Database.h>
+#include <DiffUtil.h>
+#include <Formatting.h>
+#include <LlmService.h>
 #include <Nissefar.h>
 #include <algorithm>
 #include <chrono>
@@ -29,8 +32,12 @@ Nissefar::Nissefar() {
   ollama::setReadTimeout(360);
   ollama::setWriteTimeout(360);
 
+  llm_service = std::make_unique<LlmService>(config, *bot);
+
   bot->log(dpp::ll_info, "Bot initialized");
 }
+
+Nissefar::~Nissefar() = default;
 
 // Pull channel message history from the SQL database instead of deque
 // in memory database. Will persist through reboots.
@@ -148,26 +155,6 @@ std::string Nissefar::format_sheet_context() {
   return context;
 }
 
-// Fetch image data and encode them for the LLM
-
-dpp::task<ollama::images>
-Nissefar::generate_images(std::vector<dpp::attachment> attachments) {
-  ollama::images imagelist;
-  for (auto attachment : attachments) {
-    if (attachment.content_type == "image/jpeg" ||
-        attachment.content_type == "image/webp" ||
-        attachment.content_type == "image/png") {
-      dpp::http_request_completion_t attachment_data =
-          co_await bot->co_request(attachment.url, dpp::m_get);
-      bot->log(dpp::ll_info,
-               std::format("Image size: {}", attachment_data.body.size()));
-      imagelist.push_back(ollama::image(
-          macaron::Base64::Encode(std::string(attachment_data.body))));
-    }
-  }
-  co_return imagelist;
-}
-
 // Format the last message that is not in the channel message ringbuffer
 // This is to show the message that it will respond to.
 
@@ -183,66 +170,6 @@ std::string Nissefar::format_replyto_message(const Message &msg) {
                   msg.content);
 
   return message_text;
-}
-
-// The function to generate the LLM text
-
-std::string Nissefar::generate_text(const std::string &prompt,
-                                    const ollama::images &imagelist,
-                                    const GenerationType gen_type) {
-  ollama::request req;
-  ollama::options opts;
-
-  opts["num_predict"] = 1000;
-  opts["num_ctx"] = 40000;
-  // opts["temperature"] = 1;
-  // opts["top_k"] = 64;
-  // opts["top_p"] = 0.95;
-  // opts["min_p"] = 0;
-
-  req["prompt"] = prompt;
-  req["options"] = opts["options"];
-
-  using enum GenerationType;
-  switch (gen_type) {
-  case TextReply:
-    req["system"] = config.system_prompt;
-    if (imagelist.size() > 0) {
-      req["images"] = imagelist;
-      req["model"] = config.vision_model;
-    } else {
-      req["model"] = config.text_model;
-    }
-    break;
-  case Diff:
-    req["system"] = config.diff_system_prompt;
-    req["model"] = config.comparison_model;
-    break;
-  case ImageDescription:
-    req["system"] = config.image_description_system_prompt;
-    req["model"] = config.image_description_model;
-    req["images"] = imagelist;
-    break;
-  }
-
-  std::string answer{};
-  try {
-    answer = ollama::generate(req);
-  } catch (ollama::exception e) {
-    answer = std::format("Exception running llm: {}", e.what());
-  }
-
-  if (gen_type == ImageDescription) {
-    bot->log(dpp::ll_info, std::format("Got image description: {}", answer));
-  }
-
-  // Discord messages does not support more than 2000 charachters, leave room
-  // for url in some cases
-
-  if (answer.length() > 1800)
-    answer.resize(1800);
-
-  return answer;
 }
 
 // Coroutine to handle messages from any channel and or server
@@ -271,14 +198,15 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
       answer = true;
   }
 
-  auto imagelist = co_await generate_images(event.msg.attachments);
+  auto imagelist = co_await llm_service->generate_images(event.msg.attachments);
   std::vector<std::string> image_desc{};
 
   for (auto image : imagelist) {
     ollama::images tmp_image;
     tmp_image.push_back(image);
-    image_desc.push_back(generate_text("Describe the image.", tmp_image,
-                                       GenerationType::ImageDescription));
+    image_desc.push_back(
+        llm_service->generate_text("Describe the image.", tmp_image,
+                                   LlmService::GenerationType::ImageDescription));
   }
 
   /*
@@ -314,7 +242,8 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
     bot->log(dpp::ll_info,
              std::format("Number of images: {}", imagelist.size()));
 
-    event.reply(generate_text(prompt, imagelist, GenerationType::TextReply),
+    event.reply(llm_service->generate_text(
+                    prompt, imagelist, LlmService::GenerationType::TextReply),
                 true);
   }
 
@@ -347,91 +276,6 @@ Nissefar::handle_message_update(const dpp::message_update_t &event) {
                           event.msg.content, message_id);
   }
   co_return;
-}
-
-// Use the diff command to compare data between two strings as a unified
-// diff.
-
-std::string Nissefar::diff(const std::string olddata, const std::string newdata,
-                           const int sheet_id) {
-
-  // Helper to sort CSV content: keep header, sort the rest
-  auto sort_csv = [](const std::string &raw) -> std::string {
-    if (raw.empty())
-      return "";
-
-    std::stringstream ss(raw);
-    std::string line, header, result;
-    std::vector<std::string> rows;
-
-    // Grab header
-    if (std::getline(ss, header)) {
-      result += header + "\n";
-    }
-    // Grab remaining rows
-    while (std::getline(ss, line)) {
-      if (!line.empty()) {
-        rows.push_back(line);
-      }
-    }
-
-    // Sort rows alphabetically to ignore positional changes
-    std::ranges::sort(rows);
-
-    // Reassemble
-    for (const auto &row : rows) {
-      result += row + "\n";
-    }
-    return result;
-  };
-
-  std::string sorted_old = sort_csv(olddata);
-  std::string sorted_new = sort_csv(newdata);
-
-  std::array<char, 128> buffer;
-  std::string result;
-
-  // Create the temporary files and fill them
-  std::string tempfiledir = std::filesystem::temp_directory_path();
-  std::string oldtempfile = std::format("{}/nisseold{}", tempfiledir, sheet_id);
-
-  std::string newtempfile = std::format("{}/nissenew{}", tempfiledir, sheet_id);
-
-  // Use scope to ensure files are closed and flushed before diff runs
-  {
-    std::ofstream oldfile(oldtempfile);
-    if (oldfile.is_open()) {
-      oldfile << sorted_old;
-    }
-
-    std::ofstream newfile(newtempfile);
-    if (newfile.is_open()) {
-      newfile << sorted_new;
-    }
-  }
-
-  // Easiest way to compare the file is just to pipe ye olde diff command
-  // into a string
-
-  std::unique_ptr<FILE, void (*)(FILE *)> pipe(
-      popen(std::format("diff -u {} {}", oldtempfile, newtempfile).c_str(),
-            "r"),
-      [](FILE *f) -> void { std::ignore = pclose(f); });
-
-  if (!pipe) {
-    std::filesystem::remove(oldtempfile);
-    std::filesystem::remove(newtempfile);
-    return std::string("Kunne ikke kjøre diff pipe");
-  }
-
-  while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) !=
-         nullptr)
-    result += buffer.data();
-
-  std::filesystem::remove(oldtempfile);
-  std::filesystem::remove(newtempfile);
-
-  return result;
 }
 
 // Process the google shieeets
@@ -508,9 +352,10 @@ dpp::task<void> Nissefar::process_sheets(const std::string filename,
             bot->log(dpp::ll_info,
                      std::format("The sheet \"{}\" has changed", sheet_name));
 
-            sheet_diffs[filename][sheet_id] = Diffdata{
-                diff(sheet_data[filename][sheet_id], newdata, sheet_id),
-                weblink, header, sheet_name};
+            sheet_diffs[filename][sheet_id] =
+                Diffdata{diff_csv(sheet_data[filename][sheet_id], newdata,
+                                  sheet_id),
+                         weblink, header, sheet_name};
             sheet_data[filename][sheet_id] = newdata;
           }
         }
@@ -536,8 +381,8 @@ void Nissefar::process_diffs() {
       auto prompt = std::format(
           "Filename: {}\nSheet name: {}\nCSV Header: {}\nDiff:\n{}", filename,
           diffdata.sheet_name, diffdata.header, diffdata.diffdata);
-      auto answer =
-          generate_text(prompt, ollama::images{}, GenerationType::Diff);
+      auto answer = llm_service->generate_text(
+          prompt, ollama::images{}, LlmService::GenerationType::Diff);
       answer += std::format("\n{}", diffdata.weblink);
       dpp::message msg(1267731118895927347, answer);
       bot->message_create(msg);
@@ -659,8 +504,8 @@ dpp::task<void> Nissefar::process_youtube(bool first_run) {
           prompt.append(std::format("\nLive stream title: {}", video.second));
 
         bot->log(dpp::ll_info, prompt);
-        auto answer =
-            generate_text(prompt, ollama::images{}, GenerationType::TextReply);
+        auto answer = llm_service->generate_text(
+            prompt, ollama::images{}, LlmService::GenerationType::TextReply);
 
         for (auto video : live_streams)
           answer.append(
@@ -770,10 +615,10 @@ Nissefar::handle_slashcommand(const dpp::slashcommand_t &event) {
     // Processing takes more than 3 seconds, respond to not time out
     event.thinking(
         true, [event, this](const dpp::confirmation_callback_t &callback) {
-          auto answer = generate_text(
+          auto answer = llm_service->generate_text(
               std::format("The user {} pinged you with the ping command",
                           event.command.get_issuing_user().id.str()),
-              ollama::images{}, GenerationType::TextReply);
+              ollama::images{}, LlmService::GenerationType::TextReply);
           event.edit_original_response(
               dpp::message(answer).set_flags(dpp::m_ephemeral));
         });
@@ -813,78 +658,11 @@ Nissefar::handle_slashcommand(const dpp::slashcommand_t &event) {
             dpp::message("No messages posted in this channel"));
       else {
         event.edit_original_response(
-            dpp::message(format_chanstat(res, channel.name)));
+            dpp::message(format_chanstat_table(res, channel.name)));
       }
     });
   }
   co_return;
-}
-
-size_t Nissefar::utf8_len(std::string &text) {
-  size_t len = 0;
-  const char *s = text.c_str();
-  while (*s)
-    len += (*s++ & 0xc0) != 0x80;
-  return len;
-}
-
-void Nissefar::pad_right(std::string &text, const size_t num,
-                         const std::string pad_char) {
-  auto len = num - utf8_len(text);
-  for (int i = 0; i < len; i++) {
-    text.append(pad_char);
-  }
-}
-
-void Nissefar::pad_left(std::string &text, const size_t num,
-                        const std::string pad_char) {
-  auto len = num - utf8_len(text);
-
-  for (int i = 0; i < len; i++) {
-    text.insert(0, pad_char);
-  }
-}
-
-std::string Nissefar::format_chanstat(const pqxx::result res,
-                                      std::string channel) {
-
-  channel.insert(0, "#");
-
-  // Need fix, this will chop too many characters if UTF-8 is present
-  // Tabel structure still fine
-
-  if (utf8_len(channel) > 20)
-    channel.resize(19);
-  pad_right(channel, 20, "═");
-
-  std::string chanstats_table =
-      std::format("```╔═{}╦══msgs══╦══imgs══╗\n", channel);
-
-  bool first = true;
-
-  for (auto row : res) {
-    if (!first)
-      chanstats_table.append("╠═════════════════════╬════════╬════════╣\n");
-    std::string username = row["user_name"].as<std::string>();
-    std::string msgs = row["nmsgs"].as<std::string>();
-    std::string imgs = row["nimages"].as<std::string>();
-
-    // Need fix, this will chop too many characters if UTF-8 is present
-    // Tabel structure still fine
-    if (utf8_len(username) > 19)
-      username.resize(19);
-    pad_right(username, 20, " ");
-    pad_left(msgs, 7, " ");
-    pad_left(imgs, 7, " ");
-    chanstats_table.append(
-        std::format("║ {}║{} ║{} ║\n", username, msgs, imgs));
-
-    first = false;
-  }
-
-  chanstats_table.append("╚═════════════════════╩════════╩════════╝```");
-
-  return chanstats_table;
 }
 
 dpp::task<void>

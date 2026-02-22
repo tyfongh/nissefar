@@ -11,6 +11,9 @@ add_executable(${PROJECT_NAME}
   src/Nissefar.cpp
   src/Config.cpp
   src/Database.cpp
+  src/LlmService.cpp
+  src/DiffUtil.cpp
+  src/Formatting.cpp
 )
 
 add_compile_definitions(DPP_CORO=ON)
