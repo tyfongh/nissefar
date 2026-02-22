@@ -8,7 +8,7 @@ LlmService::LlmService(const Config &config, dpp::cluster &bot)
 }
 
 dpp::task<ollama::images> LlmService::generate_images(
-    const std::vector<dpp::attachment> &attachments) const {
+    std::vector<dpp::attachment> attachments) const {
   ollama::images imagelist;
   for (const auto &attachment : attachments) {
     if (attachment.content_type == "image/jpeg" ||

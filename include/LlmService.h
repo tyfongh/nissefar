@@ -33,7 +33,7 @@ public:
                                &tool_executor) const;
 
   dpp::task<ollama::images>
-  generate_images(const std::vector<dpp::attachment> &attachments) const;
+  generate_images(std::vector<dpp::attachment> attachments) const;
 
 private:
   const Config &config;
