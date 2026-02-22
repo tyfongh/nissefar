@@ -24,40 +24,49 @@ dpp::task<ollama::images> LlmService::generate_images(
 std::string LlmService::generate_text(const std::string &prompt,
                                       const ollama::images &imagelist,
                                       GenerationType gen_type) const {
-  ollama::request req;
   ollama::options opts;
+  std::string model;
+  std::string system_prompt;
+  ollama::messages messages;
 
   opts["num_predict"] = 1000;
   opts["num_ctx"] = 40000;
 
-  req["prompt"] = prompt;
-  req["options"] = opts["options"];
-
   using enum GenerationType;
   switch (gen_type) {
   case TextReply:
-    req["system"] = config.system_prompt;
+    system_prompt = config.system_prompt;
     if (imagelist.size() > 0) {
-      req["images"] = imagelist;
-      req["model"] = config.vision_model;
+      model = config.vision_model;
+      ollama::message user_message("user", prompt);
+      user_message["images"] = imagelist;
+      messages.push_back(user_message);
     } else {
-      req["model"] = config.text_model;
+      model = config.text_model;
+      messages.emplace_back("user", prompt);
     }
     break;
   case Diff:
-    req["system"] = config.diff_system_prompt;
-    req["model"] = config.comparison_model;
+    system_prompt = config.diff_system_prompt;
+    model = config.comparison_model;
+    messages.emplace_back("user", prompt);
     break;
   case ImageDescription:
-    req["system"] = config.image_description_system_prompt;
-    req["model"] = config.image_description_model;
-    req["images"] = imagelist;
+    system_prompt = config.image_description_system_prompt;
+    model = config.image_description_model;
+    {
+      ollama::message user_message("user", prompt);
+      user_message["images"] = imagelist;
+      messages.push_back(user_message);
+    }
     break;
   }
 
+  messages.insert(messages.begin(), ollama::message("system", system_prompt));
+
   std::string answer{};
   try {
-    answer = ollama::generate(req);
+    answer = ollama::chat(model, messages, opts);
   } catch (ollama::exception e) {
     answer = std::format("Exception running llm: {}", e.what());
   }
