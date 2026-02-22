@@ -5,11 +5,10 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
-#include <algorithm>
 #include <random>
 #include <ranges>
-#include <sstream>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -102,8 +101,7 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
 
 std::string Nissefar::format_sheet_context() {
   std::string context{};
-  static const std::set<std::string> excluded_tabs = {
-      "Sunday", "Geilo", "Zero mile", "Braking", "Arctic Circle", "Bangkok"};
+  static const std::set<std::string> include_tabs = {"Range", "1000 km"};
 
   if (sheet_data.empty()) {
     return context;
@@ -133,17 +131,16 @@ std::string Nissefar::format_sheet_context() {
         }
       }
 
-      if (excluded_tabs.contains(sheet_name)) {
+      if (!include_tabs.contains(sheet_name)) {
         continue;
       }
 
-      context += std::format(
-          "\n----------------------\n"
-          "File: {}\n"
-          "Tab: {} (gid: {})\n"
-          "Header: {}\n"
-          "CSV data:\n{}",
-          filename, sheet_name, sheet_id, header, csv_data);
+      context += std::format("\n----------------------\n"
+                             "File: {}\n"
+                             "Tab: {} (gid: {})\n"
+                             "Header: {}\n"
+                             "CSV data:\n{}",
+                             filename, sheet_name, sheet_id, header, csv_data);
     }
   }
 
@@ -310,8 +307,7 @@ dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
         std::format("Current time: {:%Y-%m-%d %H:%M}\n",
                     std::chrono::zoned_time{std::chrono::current_zone(),
                                             std::chrono::system_clock::now()}) +
-        format_sheet_context() +
-        format_message_history(event.msg.channel_id) +
+        format_sheet_context() + format_message_history(event.msg.channel_id) +
         format_replyto_message(last_message);
 
     bot->log(dpp::ll_info, prompt);
@@ -499,8 +495,8 @@ dpp::task<void> Nissefar::process_sheets(const std::string filename,
         std::istringstream nds(newdata);
         std::string header{};
         std::getline(nds, header);
-        sheet_metadata[filename][sheet_id] = SheetTabMetadata{sheet_name,
-                                                              header};
+        sheet_metadata[filename][sheet_id] =
+            SheetTabMetadata{sheet_name, header};
 
         // If we do not have this data before (probably first run)
         if (sheet_data[filename][sheet_id].empty()) {
