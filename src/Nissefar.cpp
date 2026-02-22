@@ -9,6 +9,7 @@
 #include <random>
 #include <ranges>
 #include <sstream>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -101,6 +102,8 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
 
 std::string Nissefar::format_sheet_context() {
   std::string context{};
+  static const std::set<std::string> excluded_tabs = {
+      "Sunday", "Geilo", "Zero mile", "Braking", "Arctic Circle", "Bangkok"};
 
   if (sheet_data.empty()) {
     return context;
@@ -128,6 +131,10 @@ std::string Nissefar::format_sheet_context() {
           sheet_name = tab_meta->second.sheet_name;
           header = tab_meta->second.header;
         }
+      }
+
+      if (excluded_tabs.contains(sheet_name)) {
+        continue;
       }
 
       context += std::format(
