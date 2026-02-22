@@ -3,6 +3,7 @@
 #include <Formatting.h>
 #include <GoogleDocsService.h>
 #include <WebPageService.h>
+#include <VideoSummaryService.h>
 #include <YoutubeService.h>
 
 #include <chrono>
@@ -17,10 +18,12 @@ DiscordEventService::DiscordEventService(
     const Config &config, dpp::cluster &bot, const LlmService &llm_service,
     const GoogleDocsService &google_docs_service,
     const WebPageService &web_page_service,
-    const YoutubeService &youtube_service)
+    const YoutubeService &youtube_service,
+    const VideoSummaryService &video_summary_service)
     : config(config), bot(bot), llm_service(llm_service),
       google_docs_service(google_docs_service),
-      web_page_service(web_page_service), youtube_service(youtube_service) {}
+      web_page_service(web_page_service), youtube_service(youtube_service),
+      video_summary_service(video_summary_service) {}
 
 std::string
 DiscordEventService::format_message_history(dpp::snowflake channel_id) const {
@@ -139,13 +142,17 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
          ""},
         {"get_webpage_text",
          "Fetch and extract readable text from a public webpage. Use this when the user asks to summarize or answer questions about a URL.",
-         R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https URL to fetch"}},"required":["url"]})"}};
+         R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https URL to fetch"}},"required":["url"]})"},
+        {"summarize_video",
+         "Summarize a public online video URL by transcribing audio and producing a concise summary.",
+         R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https video URL to summarize"}},"required":["url"]})"}};
 
     const auto webpage_tool_calls = std::make_shared<int>(0);
+    const auto video_tool_calls = std::make_shared<int>(0);
 
     const auto execute_tool =
-        [this, webpage_tool_calls](const std::string &tool_name,
-               const std::string &arguments_json) -> dpp::task<std::string> {
+        [this, webpage_tool_calls, video_tool_calls](const std::string &tool_name,
+                const std::string &arguments_json) -> dpp::task<std::string> {
 
       static const std::map<std::string, std::string> tool_to_sheet = {
           {"get_banana_data", "Banana"},
@@ -174,8 +181,41 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
           co_return "Tool error: missing required argument 'url'.";
         }
 
+        std::unique_lock<std::mutex> lock(heavy_tool_mutex, std::try_to_lock);
+        if (!lock.owns_lock()) {
+          co_return "Tool error: another webpage/video summary task is already running.";
+        }
+
         *webpage_tool_calls += 1;
         co_return co_await web_page_service.fetch_webpage_text(requested_url);
+      }
+
+      if (tool_name == "summarize_video") {
+        if (*video_tool_calls >= 1) {
+          co_return "Tool error: only one video summary is allowed per request.";
+        }
+
+        std::string requested_url;
+        try {
+          ollama::json args = ollama::json::parse(arguments_json);
+          if (args.contains("url") && args["url"].is_string()) {
+            requested_url = args["url"].get<std::string>();
+          }
+        } catch (...) {
+          co_return "Tool error: invalid tool arguments JSON.";
+        }
+
+        if (requested_url.empty()) {
+          co_return "Tool error: missing required argument 'url'.";
+        }
+
+        std::unique_lock<std::mutex> lock(heavy_tool_mutex, std::try_to_lock);
+        if (!lock.owns_lock()) {
+          co_return "Tool error: another webpage/video summary task is already running.";
+        }
+
+        *video_tool_calls += 1;
+        co_return co_await video_summary_service.summarize_video(requested_url);
       }
 
       if (tool_name == "get_youtube_stream_status") {

@@ -14,6 +14,7 @@ class DiscordEventService;
 class GoogleDocsService;
 class YoutubeService;
 class WebPageService;
+class VideoSummaryService;
 
 class Nissefar {
 private:
@@ -26,6 +27,7 @@ private:
   std::unique_ptr<GoogleDocsService> google_docs_service;
   std::unique_ptr<YoutubeService> youtube_service;
   std::unique_ptr<WebPageService> web_page_service;
+  std::unique_ptr<VideoSummaryService> video_summary_service;
 
   // Methods
 

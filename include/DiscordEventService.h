@@ -5,11 +5,13 @@
 #include <Domain.h>
 #include <LlmService.h>
 #include <dpp/dpp.h>
+#include <mutex>
 #include <string>
 
 class GoogleDocsService;
 class WebPageService;
 class YoutubeService;
+class VideoSummaryService;
 
 class DiscordEventService {
 public:
@@ -17,7 +19,8 @@ public:
                       const LlmService &llm_service,
                       const GoogleDocsService &google_docs_service,
                       const WebPageService &web_page_service,
-                      const YoutubeService &youtube_service);
+                      const YoutubeService &youtube_service,
+                      const VideoSummaryService &video_summary_service);
 
   dpp::task<void> handle_message(const dpp::message_create_t &event);
   dpp::task<void> handle_message_update(const dpp::message_update_t &event);
@@ -37,6 +40,8 @@ private:
   const GoogleDocsService &google_docs_service;
   const WebPageService &web_page_service;
   const YoutubeService &youtube_service;
+  const VideoSummaryService &video_summary_service;
+  mutable std::mutex heavy_tool_mutex;
 };
 
 #endif // DISCORDEVENTSERVICE_H

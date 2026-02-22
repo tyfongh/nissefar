@@ -10,7 +10,8 @@ Config::Config()
           return Config(false, std::string(""), std::string(""),
                         std::string(""), std::string(""), std::string(""),
                         std::string(""), std::string(""), std::string(""),
-                        std::string(""), std::string(""), std::string(""), 0);
+                        std::string(""), std::string(""), std::string(""),
+                        std::string(""), 0);
 
         ini::IniFile ini;
         ini.setMultiLineValues(true);
@@ -48,6 +49,13 @@ Config::Config()
         std::string db_connection_string =
             ini["Database"]["db_connection_string"].as<std::string>();
 
+        std::string video_summary_script_path;
+        try {
+          video_summary_script_path =
+              ini["General"]["video_summary_script_path"].as<std::string>();
+        } catch (...) {
+        }
+
         int max_history = ini["General"]["max_history"].as<int>();
 
         if (discord_token.empty() || google_api_key.empty() ||
@@ -58,11 +66,11 @@ Config::Config()
           valid = false;
 
         return Config(valid, discord_token, google_api_key, system_prompt,
-                      diff_system_prompt, image_description_system_prompt,
-                      text_model, comparison_model, vision_model,
-                      image_description_model, ollama_server_url,
-                      db_connection_string,
-                      max_history);
+                       diff_system_prompt, image_description_system_prompt,
+                       text_model, comparison_model, vision_model,
+                       image_description_model, ollama_server_url,
+                       db_connection_string, video_summary_script_path,
+                       max_history);
       }()) {}
 
 Config::Config(bool valid, std::string discord_token,
@@ -72,7 +80,8 @@ Config::Config(bool valid, std::string discord_token,
                std::string text_model, std::string comparison_model,
                std::string vision_model, std::string image_description_model,
                std::string ollama_server_url,
-               std::string db_connection_string, int max_history)
+               std::string db_connection_string,
+               std::string video_summary_script_path, int max_history)
     : discord_token(std::move(discord_token)),
       google_api_key(std::move(google_api_key)),
       max_history(max_history),
@@ -86,6 +95,7 @@ Config::Config(bool valid, std::string discord_token,
       image_description_model(std::move(image_description_model)),
       ollama_server_url(std::move(ollama_server_url)),
       db_connection_string(std::move(db_connection_string)),
+      video_summary_script_path(std::move(video_summary_script_path)),
       is_valid(valid) {
   directory_url = std::format("https://www.googleapis.com/drive/v3/"
                               "files?q='1HOwktdiZmm40atGPwymzrxErMi1ZrKPP'+in+"
