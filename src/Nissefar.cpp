@@ -32,27 +32,6 @@ Nissefar::Nissefar() {
 
 Nissefar::~Nissefar() = default;
 
-std::string Nissefar::format_sheet_context() {
-  return google_docs_service->format_sheet_context();
-}
-
-dpp::task<void> Nissefar::handle_message(const dpp::message_create_t &event) {
-  co_return co_await discord_event_service->handle_message(event);
-}
-
-dpp::task<void>
-Nissefar::handle_message_update(const dpp::message_update_t &event) {
-  co_return co_await discord_event_service->handle_message_update(event);
-}
-
-dpp::task<void> Nissefar::process_google_docs() {
-  co_return co_await google_docs_service->process_google_docs();
-}
-
-dpp::task<void> Nissefar::process_youtube(bool first_run) {
-  co_return co_await youtube_service->process(first_run);
-}
-
 dpp::task<void> Nissefar::setup_slashcommands() {
   if (dpp::run_once<struct register_bot_commands>()) {
     bot->global_bulk_command_delete();
@@ -68,21 +47,6 @@ dpp::task<void> Nissefar::setup_slashcommands() {
   co_return;
 }
 
-dpp::task<void>
-Nissefar::handle_slashcommand(const dpp::slashcommand_t &event) {
-  co_return co_await discord_event_service->handle_slashcommand(event);
-}
-
-dpp::task<void>
-Nissefar::remove_reaction(const dpp::message_reaction_remove_t &event) {
-  co_return co_await discord_event_service->remove_reaction(event);
-}
-
-dpp::task<void>
-Nissefar::handle_reaction(const dpp::message_reaction_add_t &event) {
-  co_return co_await discord_event_service->handle_reaction(event);
-}
-
 void Nissefar::run() {
 
   auto &db = Database::instance();
@@ -93,49 +57,49 @@ void Nissefar::run() {
 
   bot->on_message_create(
       [this](const dpp::message_create_t &event) -> dpp::task<void> {
-        co_return co_await handle_message(event);
+        co_return co_await discord_event_service->handle_message(event);
       });
 
   bot->on_message_update(
       [this](const dpp::message_update_t &event) -> dpp::task<void> {
-        co_return co_await handle_message_update(event);
+        co_return co_await discord_event_service->handle_message_update(event);
       });
 
   bot->on_message_reaction_add(
       [this](const dpp::message_reaction_add_t &event) -> dpp::task<void> {
-        co_return co_await handle_reaction(event);
+        co_return co_await discord_event_service->handle_reaction(event);
       });
 
   bot->on_message_reaction_remove(
       [this](const dpp::message_reaction_remove_t &event) -> dpp::task<void> {
-        co_return co_await remove_reaction(event);
+        co_return co_await discord_event_service->remove_reaction(event);
       });
 
   bot->log(dpp::ll_info, "Initial process of sheets");
   bot->on_ready([this](const dpp::ready_t &event) -> dpp::task<void> {
     // Only run slashcommands setup when changing things
     // co_await setup_slashcommands();
-    co_await process_youtube(true);
-    co_await process_google_docs();
+    co_await youtube_service->process(true);
+    co_await google_docs_service->process_google_docs();
     co_return;
   });
 
   bot->on_slashcommand(
       [this](const dpp::slashcommand_t &event) -> dpp::task<void> {
-        co_return co_await handle_slashcommand(event);
+        co_return co_await discord_event_service->handle_slashcommand(event);
       });
 
   bot->log(dpp::ll_info, "Starting directory timer, 300 seconds");
   bot->start_timer(
       [this](const dpp::timer &timer) -> dpp::task<void> {
-        co_return co_await process_google_docs();
+        co_return co_await google_docs_service->process_google_docs();
       },
       300);
 
   bot->log(dpp::ll_info, "Starting youtube timer, 1500 seconds");
   bot->start_timer(
       [this](const dpp::timer &timer) -> dpp::task<void> {
-        co_return co_await process_youtube(false);
+        co_return co_await youtube_service->process(false);
       },
       1500);
 

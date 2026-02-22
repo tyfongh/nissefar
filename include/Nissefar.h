@@ -27,16 +27,7 @@ private:
 
   // Methods
 
-  dpp::task<void> handle_message(const dpp::message_create_t &event);
-  dpp::task<void> handle_message_update(const dpp::message_update_t &event);
-  dpp::task<void> handle_reaction(const dpp::message_reaction_add_t &event);
-  dpp::task<void> remove_reaction(const dpp::message_reaction_remove_t &event);
-  std::string format_sheet_context();
-  dpp::task<void> process_google_docs();
-  dpp::task<void> process_youtube(bool first_run);
-
   dpp::task<void> setup_slashcommands();
-  dpp::task<void> handle_slashcommand(const dpp::slashcommand_t &event);
 
 public:
   Nissefar();
