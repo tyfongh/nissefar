@@ -17,6 +17,7 @@ Nissefar::Nissefar() {
 
   // Allow for some minutes of LLM generation
 
+  ollama::setServerURL(config.ollama_server_url);
   ollama::setReadTimeout(360);
   ollama::setWriteTimeout(360);
 

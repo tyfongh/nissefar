@@ -10,7 +10,7 @@ Config::Config()
           return Config(false, std::string(""), std::string(""),
                         std::string(""), std::string(""), std::string(""),
                         std::string(""), std::string(""), std::string(""),
-                        std::string(""), std::string(""), 0);
+                        std::string(""), std::string(""), std::string(""), 0);
 
         ini::IniFile ini;
         ini.setMultiLineValues(true);
@@ -35,6 +35,15 @@ Config::Config()
             ini["General"]["vision_model"].as<std::string>();
         std::string image_description_model =
             ini["General"]["image_description_model"].as<std::string>();
+        std::string ollama_server_url = "http://localhost:11434";
+
+        try {
+          std::string configured_url =
+              ini["General"]["ollama_server_url"].as<std::string>();
+          if (!configured_url.empty())
+            ollama_server_url = configured_url;
+        } catch (...) {
+        }
 
         std::string db_connection_string =
             ini["Database"]["db_connection_string"].as<std::string>();
@@ -51,7 +60,8 @@ Config::Config()
         return Config(valid, discord_token, google_api_key, system_prompt,
                       diff_system_prompt, image_description_system_prompt,
                       text_model, comparison_model, vision_model,
-                      image_description_model, db_connection_string,
+                      image_description_model, ollama_server_url,
+                      db_connection_string,
                       max_history);
       }()) {}
 
@@ -61,6 +71,7 @@ Config::Config(bool valid, std::string discord_token,
                std::string image_description_system_prompt,
                std::string text_model, std::string comparison_model,
                std::string vision_model, std::string image_description_model,
+               std::string ollama_server_url,
                std::string db_connection_string, int max_history)
     : discord_token(std::move(discord_token)),
       google_api_key(std::move(google_api_key)),
@@ -73,6 +84,7 @@ Config::Config(bool valid, std::string discord_token,
       comparison_model(std::move(comparison_model)),
       vision_model(std::move(vision_model)),
       image_description_model(std::move(image_description_model)),
+      ollama_server_url(std::move(ollama_server_url)),
       db_connection_string(std::move(db_connection_string)),
       is_valid(valid) {
   directory_url = std::format("https://www.googleapis.com/drive/v3/"
