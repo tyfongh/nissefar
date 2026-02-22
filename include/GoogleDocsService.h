@@ -7,6 +7,7 @@
 #include <chrono>
 #include <dpp/dpp.h>
 #include <map>
+#include <optional>
 
 class GoogleDocsService {
 public:
@@ -14,6 +15,8 @@ public:
                     const LlmService &llm_service);
 
   std::string format_sheet_context() const;
+  std::optional<std::string>
+  get_sheet_csv_by_tab_name(const std::string &sheet_name) const;
   dpp::task<void> process_google_docs();
 
 private:

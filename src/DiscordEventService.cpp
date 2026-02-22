@@ -4,6 +4,7 @@
 #include <GoogleDocsService.h>
 
 #include <chrono>
+#include <map>
 #include <random>
 #include <ranges>
 #include <thread>
@@ -118,23 +119,59 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
                        event.msg.content, event.msg.author.id, image_desc};
 
   if (answer) {
+    const std::vector<LlmService::ToolDefinition> available_tools = {
+        {"get_banana_data", "Get EV trunk size dataset from Banana sheet"},
+        {"get_weight_data", "Get EV vehicle weight dataset from Weight sheet"},
+        {"get_acceleration_data",
+         "Get EV acceleration dataset from Acceleration sheet"},
+        {"get_noise_data", "Get EV vehicle noise dataset from Noise sheet"},
+        {"get_range_data",
+         "Get EV 90 and 120 km/h range and efficiency data from Range sheet"},
+        {"get_1000km_data", "Get EV 1000 km challenge dataset"}};
+
+    const auto execute_tool =
+        [this](const std::string &tool_name,
+               const std::string &arguments_json) -> std::string {
+      (void)arguments_json;
+
+      static const std::map<std::string, std::string> tool_to_sheet = {
+          {"get_banana_data", "Banana"},
+          {"get_weight_data", "Weight"},
+          {"get_acceleration_data", "Acceleration"},
+          {"get_noise_data", "Noise"},
+          {"get_range_data", "Range"},
+          {"get_1000km_data", "1000 km"}};
+
+      auto it = tool_to_sheet.find(tool_name);
+      if (it == tool_to_sheet.end()) {
+        return std::format("Tool error: unknown tool '{}'", tool_name);
+      }
+
+      auto csv_data = google_docs_service.get_sheet_csv_by_tab_name(it->second);
+      if (!csv_data.has_value()) {
+        return std::format("Tool error: dataset '{}' is not loaded", it->second);
+      }
+
+      return std::format("Dataset: {}\nCSV data:\n{}", it->second,
+                         *csv_data);
+    };
+
     std::string prompt =
         std::format("\nBot user id: {}\n", bot.me.id.str()) +
         std::format("Channel name: \"{}\"\n", current_chan->name) +
         std::format("Current time: {:%Y-%m-%d %H:%M}\n",
                     std::chrono::zoned_time{std::chrono::current_zone(),
                                             std::chrono::system_clock::now()}) +
-        google_docs_service.format_sheet_context() +
         format_message_history(event.msg.channel_id) +
         format_replyto_message(last_message);
 
     bot.log(dpp::ll_info, prompt);
     bot.log(dpp::ll_info, std::format("Number of images: {}", imagelist.size()));
 
-    event.reply(
-        llm_service.generate_text(prompt, imagelist,
-                                  LlmService::GenerationType::TextReply),
-        true);
+    event.reply(llm_service.generate_text_with_tools(prompt, imagelist,
+                                                     available_tools,
+                                                     execute_tool),
+                true);
   }
 
   store_message(last_message, current_server, current_chan,

@@ -1,4 +1,5 @@
 #include <LlmService.h>
+#include <OllamaToolCalling.h>
 
 LlmService::LlmService(const Config &config, dpp::cluster &bot)
     : config(config), bot(bot), ollama_client(config.ollama_server_url) {
@@ -76,6 +77,101 @@ std::string LlmService::generate_text(const std::string &prompt,
 
   if (gen_type == ImageDescription) {
     bot.log(dpp::ll_info, std::format("Got image description: {}", answer));
+  }
+
+  if (answer.length() > 1800)
+    answer.resize(1800);
+
+  return answer;
+}
+
+std::string LlmService::generate_text_with_tools(
+    const std::string &prompt, const ollama::images &imagelist,
+    const std::vector<LlmService::ToolDefinition> &available_tools,
+    const std::function<std::string(const std::string &, const std::string &)>
+        &tool_executor) const {
+  ollama::options opts;
+  opts["num_predict"] = 1000;
+  opts["num_ctx"] = 40000;
+
+  ollama_tools::tools json_tools;
+  for (const auto &tool : available_tools) {
+    json_tools.push_back(ollama_tools::make_function_tool(
+        tool.name, tool.description,
+        {{"type", "object"}, {"properties", ollama::json::object()}}));
+  }
+
+  const std::string model = imagelist.empty() ? config.text_model : config.vision_model;
+  ollama::messages messages;
+  messages.emplace_back("system", config.system_prompt);
+
+  if (!imagelist.empty()) {
+    ollama::message user_message("user", prompt);
+    user_message["images"] = imagelist;
+    messages.push_back(user_message);
+  } else {
+    messages.emplace_back("user", prompt);
+  }
+
+  std::string answer{};
+
+  try {
+    bot.log(dpp::ll_info,
+            std::format("Tool-calling enabled with {} tools", json_tools.size()));
+
+    ollama::response response =
+        ollama_tools::chat(ollama_client, model, messages, opts, json_tools);
+
+    for (int iteration = 0; iteration < 4; ++iteration) {
+      if (!ollama_tools::has_tool_calls(response)) {
+        answer = response;
+        break;
+      }
+
+      messages.push_back(ollama_tools::assistant_message(response));
+
+      for (const auto &tool_call : ollama_tools::tool_calls(response)) {
+        std::string tool_name = "unknown_tool";
+        std::string arguments_json = "{}";
+
+        if (tool_call.contains("function") && tool_call["function"].is_object()) {
+          const auto &fn = tool_call["function"];
+          if (fn.contains("name") && fn["name"].is_string()) {
+            tool_name = fn["name"].get<std::string>();
+          }
+          if (fn.contains("arguments") && fn["arguments"].is_object()) {
+            arguments_json = fn["arguments"].dump();
+          } else if (fn.contains("arguments") && fn["arguments"].is_string()) {
+            arguments_json = fn["arguments"].get<std::string>();
+          }
+        }
+
+        std::string logged_args = arguments_json;
+        if (logged_args.size() > 300) {
+          logged_args.resize(300);
+          logged_args += "...";
+        }
+
+        bot.log(dpp::ll_info,
+                std::format("Tool call requested: {} args={}", tool_name,
+                            logged_args));
+
+        const std::string tool_output = tool_executor(tool_name, arguments_json);
+        bot.log(dpp::ll_info,
+                std::format("Tool call result: {} output_bytes={}", tool_name,
+                            tool_output.size()));
+        messages.push_back(ollama_tools::tool_result_message(tool_name, tool_output));
+      }
+
+      response =
+          ollama_tools::chat(ollama_client, model, messages, opts, json_tools);
+    }
+
+    if (answer.empty()) {
+      answer = "I could not complete tool-calling for this request.";
+    }
+  } catch (ollama::exception e) {
+    answer = std::format("Exception running llm: {}", e.what());
   }
 
   if (answer.length() > 1800)

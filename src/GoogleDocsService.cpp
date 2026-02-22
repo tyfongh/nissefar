@@ -57,6 +57,29 @@ std::string GoogleDocsService::format_sheet_context() const {
   return context;
 }
 
+std::optional<std::string>
+GoogleDocsService::get_sheet_csv_by_tab_name(const std::string &sheet_name) const {
+  for (const auto &[filename, tab_metadata] : sheet_metadata) {
+    auto data_by_tab = sheet_data.find(filename);
+    if (data_by_tab == sheet_data.end()) {
+      continue;
+    }
+
+    for (const auto &[sheet_id, metadata] : tab_metadata) {
+      if (metadata.sheet_name != sheet_name) {
+        continue;
+      }
+
+      auto csv_data = data_by_tab->second.find(sheet_id);
+      if (csv_data != data_by_tab->second.end() && !csv_data->second.empty()) {
+        return csv_data->second;
+      }
+    }
+  }
+
+  return std::nullopt;
+}
+
 dpp::task<void> GoogleDocsService::process_sheets(const std::string filename,
                                                   const std::string file_id,
                                                   std::string weblink) {
