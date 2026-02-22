@@ -2,6 +2,7 @@
 #define NISSEFAR_H
 
 #include <Config.h>
+#include <Domain.h>
 #include <chrono>
 #include <dpp/dpp.h>
 #include <memory>
@@ -9,26 +10,8 @@
 #include <string_view>
 
 class LlmService;
-
-struct Message {
-  const dpp::snowflake msg_id;
-  const dpp::snowflake msg_replied_to;
-  const std::string content;
-  const dpp::snowflake author;
-  const std::vector<std::string> image_descriptions;
-};
-
-struct Diffdata {
-  std::string diffdata;
-  std::string weblink;
-  std::string header;
-  std::string sheet_name;
-};
-
-struct SheetTabMetadata {
-  std::string sheet_name;
-  std::string header;
-};
+class GoogleDocsService;
+class YoutubeService;
 
 class Nissefar {
 private:
@@ -37,13 +20,8 @@ private:
   Config config{};
   std::unique_ptr<dpp::cluster> bot;
   std::unique_ptr<LlmService> llm_service;
-
-  std::map<std::string, std::chrono::sys_time<std::chrono::milliseconds>>
-      timestamps;
-
-  std::map<std::string, std::map<int, std::string>> sheet_data;
-  std::map<std::string, std::map<int, SheetTabMetadata>> sheet_metadata;
-  std::map<std::string, std::map<int, Diffdata>> sheet_diffs;
+  std::unique_ptr<GoogleDocsService> google_docs_service;
+  std::unique_ptr<YoutubeService> youtube_service;
 
   // Methods
 
@@ -56,11 +34,6 @@ private:
   std::string format_replyto_message(const Message &msg);
   dpp::task<void> process_google_docs();
   dpp::task<void> process_youtube(bool first_run);
-  dpp::task<void> process_sheets(const std::string filename,
-                                 const std::string file_id,
-                                 std::string weblink);
-
-  void process_diffs();
   void store_message(const Message &message, dpp::guild *server,
                      dpp::channel *channel, const std::string user_name);
 

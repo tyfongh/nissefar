@@ -11,7 +11,10 @@ add_executable(${PROJECT_NAME}
   src/Nissefar.cpp
   src/Config.cpp
   src/Database.cpp
+  src/DbOps.cpp
   src/LlmService.cpp
+  src/GoogleDocsService.cpp
+  src/YoutubeService.cpp
   src/DiffUtil.cpp
   src/Formatting.cpp
 )

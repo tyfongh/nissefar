@@ -1,8 +1,11 @@
 #include <Database.h>
+#include <DbOps.h>
 #include <DiffUtil.h>
 #include <Formatting.h>
+#include <GoogleDocsService.h>
 #include <LlmService.h>
 #include <Nissefar.h>
+#include <YoutubeService.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -33,6 +36,9 @@ Nissefar::Nissefar() {
   ollama::setWriteTimeout(360);
 
   llm_service = std::make_unique<LlmService>(config, *bot);
+  google_docs_service =
+      std::make_unique<GoogleDocsService>(config, *bot, *llm_service);
+  youtube_service = std::make_unique<YoutubeService>(config, *bot, *llm_service);
 
   bot->log(dpp::ll_info, "Bot initialized");
 }
@@ -45,19 +51,7 @@ Nissefar::~Nissefar() = default;
 std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
   std::string message_history{};
 
-  auto &db = Database::instance();
-  auto res = db.execute("select m.message_id "
-                        "     , m.message_snowflake_id "
-                        "     , m.reply_to_snowflake_id "
-                        "     , u.user_snowflake_id "
-                        "     , m.content "
-                        "     , m.image_descriptions "
-                        "from message m "
-                        "inner join discord_user u on (u.user_id = m.user_id) "
-                        "inner join channel c on (c.channel_id = m.channel_id) "
-                        "where c.channel_snowflake_id = $1 "
-                        "order by m.message_id desc limit $2",
-                        std::stol(channel_id.str()), config.max_history);
+  auto res = dbops::fetch_channel_history(channel_id, config.max_history);
   if (!res.empty()) {
     message_history = "Channel message history:";
 
@@ -76,13 +70,8 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
                       message["user_snowflake_id"].as<std::string>(),
                       message["content"].as<std::string>());
 
-      auto react_res =
-          db.execute("select u.user_snowflake_id "
-                     "     , r.reaction "
-                     "from reaction r "
-                     "inner join discord_user u on (u.user_id = r.user_id) "
-                     "where r.message_id = $1",
-                     message["message_id"].as<std::uint64_t>());
+      auto react_res = dbops::fetch_reactions_for_message(
+          message["message_id"].as<std::uint64_t>());
 
       if (!react_res.empty()) {
         for (auto reaction : react_res) {
@@ -107,52 +96,7 @@ std::string Nissefar::format_message_history(dpp::snowflake channel_id) {
 }
 
 std::string Nissefar::format_sheet_context() {
-  std::string context{};
-  static const std::set<std::string> include_tabs = {"Range", "1000 km"};
-
-  if (sheet_data.empty()) {
-    return context;
-  }
-
-  context = "Google Sheets context:";
-
-  for (const auto &[filename, tabs] : sheet_data) {
-    if (filename == "Charging curves") {
-      continue;
-    }
-
-    if (tabs.empty()) {
-      continue;
-    }
-
-    for (const auto &[sheet_id, csv_data] : tabs) {
-      std::string sheet_name = "Unknown";
-      std::string header = "";
-
-      auto file_meta = sheet_metadata.find(filename);
-      if (file_meta != sheet_metadata.end()) {
-        auto tab_meta = file_meta->second.find(sheet_id);
-        if (tab_meta != file_meta->second.end()) {
-          sheet_name = tab_meta->second.sheet_name;
-          header = tab_meta->second.header;
-        }
-      }
-
-      if (!include_tabs.contains(sheet_name)) {
-        continue;
-      }
-
-      context += std::format("\n----------------------\n"
-                             "File: {}\n"
-                             "Tab: {} (gid: {})\n"
-                             "Header: {}\n"
-                             "CSV data:\n{}",
-                             filename, sheet_name, sheet_id, header, csv_data);
-    }
-  }
-
-  context += "\n----------------------\n";
-  return context;
+  return google_docs_service->format_sheet_context();
 }
 
 // Format the last message that is not in the channel message ringbuffer
@@ -264,330 +208,29 @@ Nissefar::handle_message_update(const dpp::message_update_t &event) {
            std::format("Message with snowflake id {} was updated to {}",
                        event.msg.id.str(), event.msg.content));
 
-  auto &db = Database::instance();
-  auto res = db.execute(
-      "select message_id from message where message_snowflake_id = $1",
-      std::stol(event.msg.id.str()));
-
-  if (!res.empty()) {
-    std::uint64_t message_id = res[0].front().as<std::uint64_t>();
-    auto res = db.execute("update message set content = $1 "
-                          "where message_id = $2",
-                          event.msg.content, message_id);
+  auto message_id = dbops::find_message_id(event.msg.id);
+  if (message_id.has_value()) {
+    dbops::update_message_content(*message_id, event.msg.content);
   }
   co_return;
 }
-
-// Process the google shieeets
-
-dpp::task<void> Nissefar::process_sheets(const std::string filename,
-                                         const std::string file_id,
-                                         std::string weblink) {
-
-  // Loop over all the sheets
-
-  bot->log(dpp::ll_info, std::format("Processing file {}", filename));
-
-  std::string file_url =
-      std::format("https://sheets.googleapis.com/v4/spreadsheets/"
-                  "{}?key={}&fields=sheets.properties(sheetId,title)",
-                  file_id, config.google_api_key);
-
-  auto file_resp = co_await bot->co_request(file_url, dpp::m_get);
-
-  if (file_resp.status != 200) {
-    bot->log(dpp::ll_error, std::format("Error fetching sheets for file {}: {}",
-                                        filename, file_resp.status));
-    co_return;
-  }
-
-  auto file_data = nlohmann::json::parse(file_resp.body.data());
-
-  for (auto sheet : file_data["sheets"]) {
-    int sheet_id = sheet["properties"]["sheetId"].get<int>();
-    std::string sheet_name = sheet["properties"]["title"].get<std::string>();
-
-    std::string sheet_url =
-        std::format("https://docs.google.com/spreadsheets/d/{}/"
-                    "export?format=csv&gid={}",
-                    file_id, sheet_id);
-
-    // Google docs will often redirect to a new url with the location
-    // headers and status 307 Make sure to try until a 200 response is hit.
-    bool is_done = false;
-    int redirect_count = 0;
-    constexpr int max_redirects = 10;
-
-    while (!is_done) {
-      auto sheet_resp = co_await bot->co_request(sheet_url, dpp::m_get);
-
-      // Found 307, try again with location
-      if (sheet_resp.status == 307) {
-        if (++redirect_count > max_redirects) {
-          bot->log(dpp::ll_warning,
-                   std::format("Too many redirects for sheet {}", sheet_id));
-          is_done = true;
-        } else {
-          sheet_url = sheet_resp.headers.find("location")->second;
-        }
-
-        // Found actual data, proceed to check
-      } else if (sheet_resp.status == 200) {
-
-        auto newdata = std::format("{}\n", sheet_resp.body.data());
-
-        std::istringstream nds(newdata);
-        std::string header{};
-        std::getline(nds, header);
-        sheet_metadata[filename][sheet_id] =
-            SheetTabMetadata{sheet_name, header};
-
-        // If we do not have this data before (probably first run)
-        if (sheet_data[filename][sheet_id].empty()) {
-          sheet_data[filename][sheet_id] = newdata;
-
-          // Else do the comparison
-        } else {
-          if (sheet_data[filename][sheet_id] != newdata) {
-            bot->log(dpp::ll_info,
-                     std::format("The sheet \"{}\" has changed", sheet_name));
-
-            sheet_diffs[filename][sheet_id] =
-                Diffdata{diff_csv(sheet_data[filename][sheet_id], newdata,
-                                  sheet_id),
-                         weblink, header, sheet_name};
-            sheet_data[filename][sheet_id] = newdata;
-          }
-        }
-        is_done = true;
-        // Handle unknown status code
-      } else {
-        bot->log(dpp::ll_info,
-                 std::format("Error: unknown response: {}", sheet_resp.status));
-        is_done = true;
-      }
-    }
-  }
-  co_return;
-}
-
-// Process the diffs. We do this after processing the shieets since it might
-// take some time to run the llm and the google redirect links are short
-// lived.
-
-void Nissefar::process_diffs() {
-  for (auto &[filename, diffmap] : sheet_diffs) {
-    for (auto &[sheet_id, diffdata] : diffmap) {
-      auto prompt = std::format(
-          "Filename: {}\nSheet name: {}\nCSV Header: {}\nDiff:\n{}", filename,
-          diffdata.sheet_name, diffdata.header, diffdata.diffdata);
-      auto answer = llm_service->generate_text(
-          prompt, ollama::images{}, LlmService::GenerationType::Diff);
-      answer += std::format("\n{}", diffdata.weblink);
-      dpp::message msg(1267731118895927347, answer);
-      bot->message_create(msg);
-    }
-  }
-  // Need to clear the diff data between each run :)
-  sheet_diffs.clear();
-}
-
-// Check the google drive directory to see if the file timestamp has changed
-// anywhere
 
 dpp::task<void> Nissefar::process_google_docs() {
-  bot->log(dpp::ll_info, "Processing directory");
-
-  auto response = co_await bot->co_request(config.directory_url, dpp::m_get);
-
-  auto directory_data = nlohmann::json::parse(response.body.data());
-
-  for (auto filedata : directory_data["files"]) {
-    std::string datestring = filedata["modifiedTime"].get<std::string>();
-    std::string filename = filedata["name"].get<std::string>();
-    if (filename != "TB test results" && filename != "Charging curves")
-      continue;
-    const std::string file_id = filedata["id"].get<std::string>();
-    const std::string weblink = filedata["webViewLink"].get<std::string>();
-
-    std::chrono::sys_time<std::chrono::milliseconds> tp;
-
-    std::istringstream ds(datestring);
-
-    ds >> std::chrono::parse("%Y-%m-%dT%H:%M:%S%Z", tp);
-
-    if (ds.fail()) {
-      bot->log(dpp::ll_info,
-               std::format("Error parsing timestamp: {}", ds.str()));
-    } else {
-      const std::string ntime = std::format("{:%Y-%m-%d %H:%M:%S %Z}", tp);
-      if (timestamps[filename].time_since_epoch() ==
-          std::chrono::milliseconds(0)) {
-        bot->log(dpp::ll_info,
-                 std::format("New entry: {}, {}", filename, ntime));
-        timestamps[filename] = tp;
-        co_await process_sheets(filename, file_id, weblink);
-
-        /* Uncomment for test
-        if (filename == "TB test results") {
-          timestamps[filename] -= std::chrono::minutes(1);
-          sheet_data[filename][26964202] += std::string(
-              "Mercedes Superexpensive,06.11.2022,Wet,3,Nokian R3,Winter,265
-        / " "40 - 21,265 / 40 - 21,\"54,17\",\"3,96\",2800\n");
-        }
-        */
-
-      } else {
-        if (timestamps[filename] != tp) {
-          const std::string otime =
-              std::format("{:%Y-%m-%d %H:%M:%S %Z}", timestamps[filename]);
-          timestamps[filename] = tp;
-          bot->log(
-              dpp::ll_info,
-              std::format("File {} has changed.\nOld time: {}, New time: {}",
-                          filename, otime, ntime));
-          // Need to limit to "known" sheets or it will keep adding blank
-          // id's to the map and fail
-          if (filename == "TB test results") {
-            co_await process_sheets(filename, file_id, weblink);
-            process_diffs();
-          } else {
-            dpp::message msg(
-                1267731118895927347,
-                std::format("Charging curves has changed\n{}", weblink));
-            bot->message_create(msg);
-          }
-        }
-      }
-    }
-  }
-  co_return;
+  co_return co_await google_docs_service->process_google_docs();
 }
 
 dpp::task<void> Nissefar::process_youtube(bool first_run) {
-  bot->log(dpp::ll_info, "Process youtube..");
-  auto res = co_await bot->co_request(config.youtube_url, dpp::m_get);
-
-  auto live_data = nlohmann::json::parse(res.body.data());
-
-  if (live_data.find("pageInfo") != live_data.end()) {
-    int live_count = live_data["pageInfo"]["totalResults"].get<int>();
-    bot->log(dpp::ll_info, std::format("Live data: {}", live_count));
-
-    if (live_count == 0 && config.is_streaming) {
-      bot->log(dpp::ll_info, "Bjørn stopped streaming");
-      /*
-      dpp::message msg(1267731118895927347, "Bjørn stopped streaming");
-      bot->message_create(msg);
-      */
-      config.is_streaming = false;
-    }
-
-    if (live_count > 0 && !config.is_streaming) {
-      bot->log(dpp::ll_info, "Bjørn started streaming");
-      if (!first_run) {
-        std::vector<std::pair<std::string, std::string>> live_streams{};
-        for (auto video_item : live_data["items"])
-          live_streams.push_back(
-              {video_item["id"]["videoId"].get<std::string>(),
-               video_item["snippet"]["title"].get<std::string>()});
-
-        std::string prompt =
-            "Bjørn Nyland just started a live stream on youtube. Make your "
-            "comment an "
-            "announcement of that. Below are the titles of the live "
-            "stream(s). "
-            "Do not include any link to the stream. Do not include any user "
-            "ids.";
-
-        for (auto video : live_streams)
-          prompt.append(std::format("\nLive stream title: {}", video.second));
-
-        bot->log(dpp::ll_info, prompt);
-        auto answer = llm_service->generate_text(
-            prompt, ollama::images{}, LlmService::GenerationType::TextReply);
-
-        for (auto video : live_streams)
-          answer.append(
-              std::format("\nhttps://www.youtube.com/watch?v={}", video.first));
-
-        dpp::message msg(1267731118895927347, answer);
-        bot->message_create(msg);
-      }
-      config.is_streaming = true;
-    }
-  } else {
-    bot->log(dpp::ll_info, "Youtube: pageInfo key not found in json");
-  }
-  co_return;
+  co_return co_await youtube_service->process(first_run);
 }
 
 void Nissefar::store_message(const Message &message, dpp::guild *server,
                              dpp::channel *channel,
                              const std::string user_name) {
-  int server_id{0};
-  int channel_id{0};
-  int user_id{0};
-
-  auto &db = Database::instance();
-
-  auto res =
-      db.execute("select server_id from server where server_snowflake_id = $1",
-                 std::stol(server->id.str()));
-
-  if (res.empty()) {
-    res = db.execute("insert into server (server_name, server_snowflake_id) "
-                     "values ($1, $2) returning server_id",
-                     server->name, std::stol(server->id.str()));
-    if (!res.empty())
-      server_id = res.front()["server_id"].as<int>();
-  } else {
-    server_id = res.front()["server_id"].as<int>();
-  }
-
-  res = db.execute(
-      "select channel_id from channel where channel_snowflake_id = $1",
-      std::stol(channel->id.str()));
-
-  if (res.empty()) {
-    res = db.execute(
-        "insert into channel (channel_name, server_id, channel_snowflake_id) "
-        "values ($1, $2, $3) returning channel_id",
-        channel->name, server_id, std::stol(channel->id.str()));
-    if (!res.empty())
-      channel_id = res.front()["channel_id"].as<int>();
-  } else {
-    channel_id = res.front()["channel_id"].as<int>();
-  }
-
-  res = db.execute(
-      "select user_id from discord_user where user_snowflake_id = $1",
-      std::stol(message.author.str()));
-
-  if (res.empty()) {
-    res = db.execute("insert into discord_user (user_name, user_snowflake_id) "
-                     "values ($1, $2) returning user_id",
-                     user_name, std::stol(message.author.str()));
-
-    if (!res.empty())
-      user_id = res.front()["user_id"].as<int>();
-  } else {
-    user_id = res.front()["user_id"].as<int>();
-  }
-
-  res = db.execute(
-      "insert into message (user_id, channel_id, content, "
-      "message_snowflake_id, reply_to_snowflake_id, image_descriptions) "
-      "values "
-      "($1, $2, $3, $4, $5, $6) returning message_id",
-      user_id, channel_id, message.content, std::stol(message.msg_id.str()),
-      std::stol(message.msg_replied_to.str()), message.image_descriptions);
-
+  auto ids = dbops::store_message(message, server, channel, user_name);
   bot->log(
       dpp::ll_info,
       std::format("server_id: {} channel id: {} user_id: {}, message_id {}",
-                  server_id, channel_id, user_id,
-                  res.front()["message_id"].as<int>()));
+                  ids.server_id, ids.channel_id, ids.user_id, ids.message_id));
 }
 
 dpp::task<void> Nissefar::setup_slashcommands() {
@@ -637,21 +280,7 @@ Nissefar::handle_slashcommand(const dpp::slashcommand_t &event) {
 
       bot->log(dpp::ll_info, std::format("Channel: {}", channel.name));
 
-      auto &db = Database::instance();
-      auto res = db.execute(
-          "select"
-          "  u.user_name "
-          ", count(*) as nmsgs "
-          ", sum(coalesce(array_length(image_descriptions, 1),0)) as nimages "
-          "from message m "
-          "inner join discord_user u on (m.user_id = u.user_id) "
-          "inner join channel c on (m.channel_id = c.channel_id) "
-          "where c.channel_snowflake_id = $1 "
-          "and u.user_snowflake_id != $2 "
-          "group by u.user_name "
-          "order by nmsgs desc, nimages desc "
-          " limit 20",
-          std::stol(channel.id.str()), std::stol(bot->me.id.str()));
+      auto res = dbops::fetch_chanstats(channel.id, bot->me.id);
 
       if (res.empty())
         event.edit_original_response(
@@ -676,25 +305,11 @@ Nissefar::remove_reaction(const dpp::message_reaction_remove_t &event) {
   bot->log(dpp::ll_info, std::format("message: {}, reaction removed: {}",
                                      event.message_id.str(), emoji));
 
-  auto &db = Database::instance();
-
-  auto react_res =
-      db.execute("select r.reaction_id "
-                 "from reaction r "
-                 "inner join message m on (m.message_id = r.message_id) "
-                 "inner join discord_user u on (u.user_id = r.user_id) "
-                 "where u.user_snowflake_id = $1 "
-                 "and m.message_snowflake_id = $2 "
-                 "and r.reaction = $3",
-                 std::stol(event.reacting_user_id.str()),
-                 std::stol(event.message_id.str()), emoji);
-
-  if (!react_res.empty()) {
-    std::uint64_t react_id = react_res[0].front().as<std::uint64_t>();
-    bot->log(dpp::ll_info, std::format("Deleting reaction id {}", react_id));
-
-    auto del_res =
-        db.execute("delete from reaction where reaction_id = $1", react_id);
+  auto react_id =
+      dbops::find_reaction_id(event.reacting_user_id, event.message_id, emoji);
+  if (react_id.has_value()) {
+    bot->log(dpp::ll_info, std::format("Deleting reaction id {}", *react_id));
+    dbops::delete_reaction(*react_id);
   }
 
   co_return;
@@ -708,27 +323,14 @@ Nissefar::handle_reaction(const dpp::message_reaction_add_t &event) {
   else
     emoji = event.reacting_emoji.format();
 
-  auto &db = Database::instance();
-  auto msg_res = db.execute(
-      "select message_id from message where message_snowflake_id = $1",
-      std::stol(event.message_id.str()));
-
-  if (!msg_res.empty()) {
-    std::uint64_t message_id = msg_res[0].front().as<std::uint64_t>();
-
-    auto user_res = db.execute("select user_id from discord_user "
-                               "where user_snowflake_id = $1",
-                               std::stol(event.reacting_user.id.str()));
-    if (!user_res.empty()) {
-      std::uint64_t user_id = user_res[0].front().as<std::uint64_t>();
-
-      auto up_res =
-          db.execute("insert into reaction (message_id, user_id, reaction) "
-                     "values ($1, $2, $3)",
-                     message_id, user_id, emoji);
+  auto message_id = dbops::find_message_id(event.message_id);
+  if (message_id.has_value()) {
+    auto user_id = dbops::find_user_id(event.reacting_user.id);
+    if (user_id.has_value()) {
+      dbops::insert_reaction(*message_id, *user_id, emoji);
       bot->log(dpp::ll_info,
                std::format("message: {}, user: {}, reaction added: {}",
-                           message_id, event.reacting_user.format_username(),
+                           *message_id, event.reacting_user.format_username(),
                            emoji));
     }
   }
