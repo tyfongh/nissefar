@@ -10,6 +10,7 @@
 #include <string_view>
 
 class LlmService;
+class DiscordEventService;
 class GoogleDocsService;
 class YoutubeService;
 
@@ -20,6 +21,7 @@ private:
   Config config{};
   std::unique_ptr<dpp::cluster> bot;
   std::unique_ptr<LlmService> llm_service;
+  std::unique_ptr<DiscordEventService> discord_event_service;
   std::unique_ptr<GoogleDocsService> google_docs_service;
   std::unique_ptr<YoutubeService> youtube_service;
 
@@ -29,13 +31,9 @@ private:
   dpp::task<void> handle_message_update(const dpp::message_update_t &event);
   dpp::task<void> handle_reaction(const dpp::message_reaction_add_t &event);
   dpp::task<void> remove_reaction(const dpp::message_reaction_remove_t &event);
-  std::string format_message_history(dpp::snowflake channel_id);
   std::string format_sheet_context();
-  std::string format_replyto_message(const Message &msg);
   dpp::task<void> process_google_docs();
   dpp::task<void> process_youtube(bool first_run);
-  void store_message(const Message &message, dpp::guild *server,
-                     dpp::channel *channel, const std::string user_name);
 
   dpp::task<void> setup_slashcommands();
   dpp::task<void> handle_slashcommand(const dpp::slashcommand_t &event);

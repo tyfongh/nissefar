@@ -13,6 +13,7 @@ add_executable(${PROJECT_NAME}
   src/Database.cpp
   src/DbOps.cpp
   src/LlmService.cpp
+  src/DiscordEventService.cpp
   src/GoogleDocsService.cpp
   src/YoutubeService.cpp
   src/DiffUtil.cpp
