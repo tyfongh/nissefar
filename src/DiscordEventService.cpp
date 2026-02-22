@@ -3,6 +3,7 @@
 #include <Formatting.h>
 #include <GoogleDocsService.h>
 #include <WebPageService.h>
+#include <YoutubeService.h>
 
 #include <chrono>
 #include <map>
@@ -15,10 +16,11 @@
 DiscordEventService::DiscordEventService(
     const Config &config, dpp::cluster &bot, const LlmService &llm_service,
     const GoogleDocsService &google_docs_service,
-    const WebPageService &web_page_service)
+    const WebPageService &web_page_service,
+    const YoutubeService &youtube_service)
     : config(config), bot(bot), llm_service(llm_service),
       google_docs_service(google_docs_service),
-      web_page_service(web_page_service) {}
+      web_page_service(web_page_service), youtube_service(youtube_service) {}
 
 std::string
 DiscordEventService::format_message_history(dpp::snowflake channel_id) const {
@@ -132,6 +134,9 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         {"get_range_data",
          "Get EV 90 and 120 km/h range and efficiency data from Range sheet", ""},
         {"get_1000km_data", "Get EV 1000 km challenge dataset", ""},
+        {"get_youtube_stream_status",
+         "Check whether the tracked YouTube stream is currently live. If live, returns the current stream title.",
+         ""},
         {"get_webpage_text",
          "Fetch and extract readable text from a public webpage. Use this when the user asks to summarize or answer questions about a URL.",
          R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https URL to fetch"}},"required":["url"]})"}};
@@ -171,6 +176,16 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
 
         *webpage_tool_calls += 1;
         co_return co_await web_page_service.fetch_webpage_text(requested_url);
+      }
+
+      if (tool_name == "get_youtube_stream_status") {
+        const auto status = youtube_service.get_stream_status();
+        ollama::json payload = ollama::json::object();
+        payload["is_live"] = status.is_live;
+        if (status.is_live && !status.title.empty()) {
+          payload["title"] = status.title;
+        }
+        co_return payload.dump();
       }
 
       auto it = tool_to_sheet.find(tool_name);

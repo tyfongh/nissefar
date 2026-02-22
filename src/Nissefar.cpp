@@ -25,11 +25,12 @@ Nissefar::Nissefar() {
   llm_service = std::make_unique<LlmService>(config, *bot);
   google_docs_service =
       std::make_unique<GoogleDocsService>(config, *bot, *llm_service);
-  web_page_service = std::make_unique<WebPageService>(*bot);
-  discord_event_service = std::make_unique<DiscordEventService>(
-      config, *bot, *llm_service, *google_docs_service, *web_page_service);
   youtube_service =
       std::make_unique<YoutubeService>(config, *bot, *llm_service);
+  web_page_service = std::make_unique<WebPageService>(*bot);
+  discord_event_service = std::make_unique<DiscordEventService>(
+      config, *bot, *llm_service, *google_docs_service, *web_page_service,
+      *youtube_service);
 
   bot->log(dpp::ll_info, "Bot initialized");
 }

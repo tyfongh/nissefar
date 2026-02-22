@@ -4,6 +4,11 @@ YoutubeService::YoutubeService(Config &config, dpp::cluster &bot,
                                const LlmService &llm_service)
     : config(config), bot(bot), llm_service(llm_service) {}
 
+YoutubeService::StreamStatus YoutubeService::get_stream_status() const {
+  std::lock_guard<std::mutex> lock(stream_status_mutex);
+  return StreamStatus{stream_is_live, stream_title};
+}
+
 dpp::task<void> YoutubeService::process(bool first_run) {
   bot.log(dpp::ll_info, "Process youtube..");
   auto res = co_await bot.co_request(config.youtube_url, dpp::m_get);
@@ -12,6 +17,22 @@ dpp::task<void> YoutubeService::process(bool first_run) {
 
   if (live_data.find("pageInfo") != live_data.end()) {
     int live_count = live_data["pageInfo"]["totalResults"].get<int>();
+    std::string latest_stream_title;
+    if (live_count > 0 && live_data.contains("items") &&
+        live_data["items"].is_array() && !live_data["items"].empty() &&
+        live_data["items"][0].contains("snippet") &&
+        live_data["items"][0]["snippet"].contains("title") &&
+        live_data["items"][0]["snippet"]["title"].is_string()) {
+      latest_stream_title =
+          live_data["items"][0]["snippet"]["title"].get<std::string>();
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(stream_status_mutex);
+      stream_is_live = live_count > 0;
+      stream_title = latest_stream_title;
+    }
+
     bot.log(dpp::ll_info, std::format("Live data: {}", live_count));
 
     if (live_count == 0 && config.is_streaming) {

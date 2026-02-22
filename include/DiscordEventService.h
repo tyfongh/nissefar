@@ -9,13 +9,15 @@
 
 class GoogleDocsService;
 class WebPageService;
+class YoutubeService;
 
 class DiscordEventService {
 public:
   DiscordEventService(const Config &config, dpp::cluster &bot,
                       const LlmService &llm_service,
                       const GoogleDocsService &google_docs_service,
-                      const WebPageService &web_page_service);
+                      const WebPageService &web_page_service,
+                      const YoutubeService &youtube_service);
 
   dpp::task<void> handle_message(const dpp::message_create_t &event);
   dpp::task<void> handle_message_update(const dpp::message_update_t &event);
@@ -34,6 +36,7 @@ private:
   const LlmService &llm_service;
   const GoogleDocsService &google_docs_service;
   const WebPageService &web_page_service;
+  const YoutubeService &youtube_service;
 };
 
 #endif // DISCORDEVENTSERVICE_H
