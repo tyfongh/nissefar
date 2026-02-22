@@ -3,6 +3,7 @@
 #include <GoogleDocsService.h>
 #include <LlmService.h>
 #include <Nissefar.h>
+#include <WebPageService.h>
 #include <YoutubeService.h>
 #include <dpp/misc-enum.h>
 #include <stdexcept>
@@ -24,8 +25,9 @@ Nissefar::Nissefar() {
   llm_service = std::make_unique<LlmService>(config, *bot);
   google_docs_service =
       std::make_unique<GoogleDocsService>(config, *bot, *llm_service);
+  web_page_service = std::make_unique<WebPageService>(*bot);
   discord_event_service = std::make_unique<DiscordEventService>(
-      config, *bot, *llm_service, *google_docs_service);
+      config, *bot, *llm_service, *google_docs_service, *web_page_service);
   youtube_service =
       std::make_unique<YoutubeService>(config, *bot, *llm_service);
 

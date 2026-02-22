@@ -85,10 +85,11 @@ std::string LlmService::generate_text(const std::string &prompt,
   return answer;
 }
 
-std::string LlmService::generate_text_with_tools(
+dpp::task<std::string> LlmService::generate_text_with_tools(
     const std::string &prompt, const ollama::images &imagelist,
     const std::vector<LlmService::ToolDefinition> &available_tools,
-    const std::function<std::string(const std::string &, const std::string &)>
+    const std::function<dpp::task<std::string>(const std::string &,
+                                               const std::string &)>
         &tool_executor) const {
   ollama::options opts;
   opts["num_predict"] = 1000;
@@ -96,9 +97,17 @@ std::string LlmService::generate_text_with_tools(
 
   ollama_tools::tools json_tools;
   for (const auto &tool : available_tools) {
+    ollama::json parameters =
+        ollama::json{{"type", "object"}, {"properties", ollama::json::object()}};
+    if (!tool.parameters_schema_json.empty()) {
+      try {
+        parameters = ollama::json::parse(tool.parameters_schema_json);
+      } catch (...) {
+      }
+    }
+
     json_tools.push_back(ollama_tools::make_function_tool(
-        tool.name, tool.description,
-        {{"type", "object"}, {"properties", ollama::json::object()}}));
+        tool.name, tool.description, parameters));
   }
 
   const std::string model = imagelist.empty() ? config.text_model : config.vision_model;
@@ -156,7 +165,8 @@ std::string LlmService::generate_text_with_tools(
                 std::format("Tool call requested: {} args={}", tool_name,
                             logged_args));
 
-        const std::string tool_output = tool_executor(tool_name, arguments_json);
+        const std::string tool_output =
+            co_await tool_executor(tool_name, arguments_json);
         bot.log(dpp::ll_info,
                 std::format("Tool call result: {} output_bytes={}", tool_name,
                             tool_output.size()));
@@ -177,5 +187,5 @@ std::string LlmService::generate_text_with_tools(
   if (answer.length() > 1800)
     answer.resize(1800);
 
-  return answer;
+  co_return answer;
 }

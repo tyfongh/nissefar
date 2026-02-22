@@ -15,6 +15,7 @@ public:
   struct ToolDefinition {
     std::string name;
     std::string description;
+    std::string parameters_schema_json;
   };
 
   LlmService(const Config &config, dpp::cluster &bot);
@@ -23,11 +24,11 @@ public:
                             const ollama::images &imagelist,
                             GenerationType gen_type) const;
 
-  std::string
+  dpp::task<std::string>
   generate_text_with_tools(const std::string &prompt,
                            const ollama::images &imagelist,
                            const std::vector<ToolDefinition> &available_tools,
-                           const std::function<std::string(
+                           const std::function<dpp::task<std::string>(
                                const std::string &, const std::string &)>
                                &tool_executor) const;
 

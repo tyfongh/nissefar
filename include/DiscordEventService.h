@@ -8,12 +8,14 @@
 #include <string>
 
 class GoogleDocsService;
+class WebPageService;
 
 class DiscordEventService {
 public:
   DiscordEventService(const Config &config, dpp::cluster &bot,
                       const LlmService &llm_service,
-                      const GoogleDocsService &google_docs_service);
+                      const GoogleDocsService &google_docs_service,
+                      const WebPageService &web_page_service);
 
   dpp::task<void> handle_message(const dpp::message_create_t &event);
   dpp::task<void> handle_message_update(const dpp::message_update_t &event);
@@ -31,6 +33,7 @@ private:
   dpp::cluster &bot;
   const LlmService &llm_service;
   const GoogleDocsService &google_docs_service;
+  const WebPageService &web_page_service;
 };
 
 #endif // DISCORDEVENTSERVICE_H

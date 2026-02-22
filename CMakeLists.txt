@@ -27,6 +27,7 @@ add_executable(${PROJECT_NAME}
   src/DiscordEventService.cpp
   src/GoogleDocsService.cpp
   src/YoutubeService.cpp
+  src/WebPageService.cpp
   src/DiffUtil.cpp
   src/Formatting.cpp
 )

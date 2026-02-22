@@ -2,9 +2,11 @@
 #include <DiscordEventService.h>
 #include <Formatting.h>
 #include <GoogleDocsService.h>
+#include <WebPageService.h>
 
 #include <chrono>
 #include <map>
+#include <memory>
 #include <random>
 #include <ranges>
 #include <thread>
@@ -12,9 +14,11 @@
 
 DiscordEventService::DiscordEventService(
     const Config &config, dpp::cluster &bot, const LlmService &llm_service,
-    const GoogleDocsService &google_docs_service)
+    const GoogleDocsService &google_docs_service,
+    const WebPageService &web_page_service)
     : config(config), bot(bot), llm_service(llm_service),
-      google_docs_service(google_docs_service) {}
+      google_docs_service(google_docs_service),
+      web_page_service(web_page_service) {}
 
 std::string
 DiscordEventService::format_message_history(dpp::snowflake channel_id) const {
@@ -120,19 +124,23 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
 
   if (answer) {
     const std::vector<LlmService::ToolDefinition> available_tools = {
-        {"get_banana_data", "Get EV trunk size dataset from Banana sheet"},
-        {"get_weight_data", "Get EV vehicle weight dataset from Weight sheet"},
+        {"get_banana_data", "Get EV trunk size dataset from Banana sheet", ""},
+        {"get_weight_data", "Get EV vehicle weight dataset from Weight sheet", ""},
         {"get_acceleration_data",
-         "Get EV acceleration dataset from Acceleration sheet"},
-        {"get_noise_data", "Get EV vehicle noise dataset from Noise sheet"},
+         "Get EV acceleration dataset from Acceleration sheet", ""},
+        {"get_noise_data", "Get EV vehicle noise dataset from Noise sheet", ""},
         {"get_range_data",
-         "Get EV 90 and 120 km/h range and efficiency data from Range sheet"},
-        {"get_1000km_data", "Get EV 1000 km challenge dataset"}};
+         "Get EV 90 and 120 km/h range and efficiency data from Range sheet", ""},
+        {"get_1000km_data", "Get EV 1000 km challenge dataset", ""},
+        {"get_webpage_text",
+         "Fetch and extract readable text from a public webpage. Use this when the user asks to summarize or answer questions about a URL.",
+         R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https URL to fetch"}},"required":["url"]})"}};
+
+    const auto webpage_tool_calls = std::make_shared<int>(0);
 
     const auto execute_tool =
-        [this](const std::string &tool_name,
-               const std::string &arguments_json) -> std::string {
-      (void)arguments_json;
+        [this, webpage_tool_calls](const std::string &tool_name,
+               const std::string &arguments_json) -> dpp::task<std::string> {
 
       static const std::map<std::string, std::string> tool_to_sheet = {
           {"get_banana_data", "Banana"},
@@ -142,18 +150,40 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
           {"get_range_data", "Range"},
           {"get_1000km_data", "1000 km"}};
 
+      if (tool_name == "get_webpage_text") {
+        if (*webpage_tool_calls >= 1) {
+          co_return "Tool error: only one webpage fetch is allowed per request.";
+        }
+
+        std::string requested_url;
+        try {
+          ollama::json args = ollama::json::parse(arguments_json);
+          if (args.contains("url") && args["url"].is_string()) {
+            requested_url = args["url"].get<std::string>();
+          }
+        } catch (...) {
+          co_return "Tool error: invalid tool arguments JSON.";
+        }
+
+        if (requested_url.empty()) {
+          co_return "Tool error: missing required argument 'url'.";
+        }
+
+        *webpage_tool_calls += 1;
+        co_return co_await web_page_service.fetch_webpage_text(requested_url);
+      }
+
       auto it = tool_to_sheet.find(tool_name);
       if (it == tool_to_sheet.end()) {
-        return std::format("Tool error: unknown tool '{}'", tool_name);
+        co_return std::format("Tool error: unknown tool '{}'", tool_name);
       }
 
       auto csv_data = google_docs_service.get_sheet_csv_by_tab_name(it->second);
       if (!csv_data.has_value()) {
-        return std::format("Tool error: dataset '{}' is not loaded", it->second);
+        co_return std::format("Tool error: dataset '{}' is not loaded", it->second);
       }
 
-      return std::format("Dataset: {}\nCSV data:\n{}", it->second,
-                         *csv_data);
+      co_return std::format("Dataset: {}\nCSV data:\n{}", it->second, *csv_data);
     };
 
     std::string prompt =
@@ -168,10 +198,11 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
     bot.log(dpp::ll_info, prompt);
     bot.log(dpp::ll_info, std::format("Number of images: {}", imagelist.size()));
 
-    event.reply(llm_service.generate_text_with_tools(prompt, imagelist,
-                                                     available_tools,
-                                                     execute_tool),
-                true);
+    auto tool_answer =
+        co_await llm_service.generate_text_with_tools(prompt, imagelist,
+                                                      available_tools,
+                                                      execute_tool);
+    event.reply(tool_answer, true);
   }
 
   store_message(last_message, current_server, current_chan,
