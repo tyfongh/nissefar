@@ -2,6 +2,7 @@
 #define DOMAIN_H
 
 #include <dpp/dpp.h>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -10,6 +11,7 @@ struct Message {
   const dpp::snowflake msg_replied_to;
   const std::string content;
   const dpp::snowflake author;
+  const std::int64_t created_at_unix;
   const std::vector<std::string> image_descriptions;
 };
 

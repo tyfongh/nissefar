@@ -9,4 +9,5 @@ create table message
   , message_snowflake_id  bigint
   , reply_to_snowflake_id bigint
   , image_descriptions    text[] default '{}'
+  , created_at            timestamptz not null default '2025-01-01 00:00:00+00'
 );

@@ -128,7 +128,8 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
   }
 
   Message last_message{event.msg.id, event.msg.message_reference.message_id,
-                       event.msg.content, event.msg.author.id, image_desc};
+                       event.msg.content, event.msg.author.id,
+                       static_cast<std::int64_t>(event.msg.sent), image_desc};
 
   if (answer) {
     const std::vector<LlmService::ToolDefinition> available_tools = {

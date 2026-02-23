@@ -101,11 +101,12 @@ StoredMessageIds store_message(const Message &message, dpp::guild *server,
 
   res = db.execute(
       "insert into message (user_id, channel_id, content, "
-      "message_snowflake_id, reply_to_snowflake_id, image_descriptions) "
+      "message_snowflake_id, reply_to_snowflake_id, image_descriptions, created_at) "
       "values "
-      "($1, $2, $3, $4, $5, $6) returning message_id",
+      "($1, $2, $3, $4, $5, $6, to_timestamp($7)) returning message_id",
       user_id, channel_id, message.content, std::stol(message.msg_id.str()),
-      std::stol(message.msg_replied_to.str()), message.image_descriptions);
+      std::stol(message.msg_replied_to.str()), message.image_descriptions,
+      message.created_at_unix);
 
   return StoredMessageIds{server_id, channel_id, user_id,
                           res.front()["message_id"].as<int>()};
