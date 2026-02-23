@@ -98,7 +98,8 @@ ParseResult parse_and_compile(const std::string &request_json) {
   static const std::set<std::string> allowed_query_types = {"leaderboard",
                                                             "time_series"};
   static const std::set<std::string> allowed_metrics = {
-      "messages", "images", "reactions_given", "reactions_received"};
+      "messages", "images", "reactions_given", "reactions_received",
+      "reactions_used"};
   static const std::set<std::string> allowed_time_ranges = {
       "all_time", "last_7d", "last_30d", "this_month", "last_month"};
   static const std::set<std::string> allowed_scopes = {"channel", "server"};
@@ -109,8 +110,8 @@ ParseResult parse_and_compile(const std::string &request_json) {
   }
   if (!allowed_metrics.contains(metric)) {
     return {std::nullopt, "",
-            "unsupported metric. Use messages, images, reactions_given, or "
-            "reactions_received."};
+            "unsupported metric. Use messages, images, reactions_given, "
+            "reactions_received, or reactions_used."};
   }
   if (!allowed_time_ranges.contains(time_range)) {
     return {std::nullopt, "", "unsupported time_range."};
@@ -197,6 +198,20 @@ ParseResult parse_and_compile(const std::string &request_json) {
           "order by value desc, label asc "
           "limit {}",
           scope_join, scope_filter, time_filter, emoji_filter, limit);
+    } else if (metric == "reactions_used") {
+      const std::string emoji_filter = emoji.empty() ? "1 = 1" : "r.reaction = $2";
+      needs_emoji_param = !emoji.empty();
+      sql = std::format(
+          "select r.reaction as label, count(*) as value "
+          "from reaction r "
+          "join message m on m.message_id = r.message_id "
+          "join channel c on c.channel_id = m.channel_id "
+          "{}"
+          "where ({}) and ({}) and ({}) "
+          "group by r.reaction "
+          "order by value desc, label asc "
+          "limit {}",
+          scope_join, scope_filter, time_filter, emoji_filter, limit);
     } else {
       const std::string emoji_filter = emoji.empty() ? "1 = 1" : "r.reaction = $2";
       needs_emoji_param = !emoji.empty();
@@ -226,6 +241,20 @@ ParseResult parse_and_compile(const std::string &request_json) {
           "limit {}",
           interval, metric_expr, scope_join, scope_filter, time_filter, limit);
     } else if (metric == "reactions_given") {
+      const std::string emoji_filter = emoji.empty() ? "1 = 1" : "r.reaction = $2";
+      needs_emoji_param = !emoji.empty();
+      sql = std::format(
+          "select date_trunc('{}', m.created_at) as bucket_start, count(*) as value "
+          "from reaction r "
+          "join message m on m.message_id = r.message_id "
+          "join channel c on c.channel_id = m.channel_id "
+          "{}"
+          "where ({}) and ({}) and ({}) "
+          "group by bucket_start "
+          "order by bucket_start asc "
+          "limit {}",
+          interval, scope_join, scope_filter, time_filter, emoji_filter, limit);
+    } else if (metric == "reactions_used") {
       const std::string emoji_filter = emoji.empty() ? "1 = 1" : "r.reaction = $2";
       needs_emoji_param = !emoji.empty();
       sql = std::format(

@@ -99,6 +99,21 @@ void test_server_scope_compiles_to_server_filter() {
               "server scope filter uses parameter");
 }
 
+void test_reactions_used_query_groups_by_emoji() {
+  const auto parsed = analytics_query::parse_and_compile(
+      R"({"scope":"server","query_type":"leaderboard","metric":"reactions_used","time_range":"all_time","limit":10})");
+  expect_true(parsed.ok(), "reactions_used query parses");
+  if (!parsed.ok()) {
+    return;
+  }
+
+  expect_true(parsed.query->sql.find("select r.reaction as label") !=
+                  std::string::npos,
+              "reactions_used labels by reaction");
+  expect_true(parsed.query->sql.find("group by r.reaction") != std::string::npos,
+              "reactions_used groups by reaction");
+}
+
 void test_invalid_scope_rejected() {
   const auto parsed = analytics_query::parse_and_compile(
       R"({"scope":"global","query_type":"leaderboard","metric":"messages"})");
@@ -115,6 +130,7 @@ int main() {
   test_invalid_limit_type_rejected();
   test_limit_clamped();
   test_server_scope_compiles_to_server_filter();
+  test_reactions_used_query_groups_by_emoji();
   test_invalid_scope_rejected();
 
   if (failures != 0) {
