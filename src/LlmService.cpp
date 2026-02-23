@@ -70,7 +70,17 @@ std::string LlmService::generate_text(const std::string &prompt,
 
   std::string answer{};
   try {
-    answer = ollama_client.chat(model, messages, opts);
+    const bool use_generate_endpoint =
+        (gen_type == GenerationType::ImageDescription) ||
+        (gen_type == GenerationType::TextReply && !imagelist.empty());
+
+    if (use_generate_endpoint) {
+      ollama::request request(model, prompt, opts, false, imagelist);
+      request["system"] = system_prompt;
+      answer = ollama_client.generate(request);
+    } else {
+      answer = ollama_client.chat(model, messages, opts);
+    }
   } catch (ollama::exception e) {
     answer = std::format("Exception running llm: {}", e.what());
   }
@@ -91,6 +101,10 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
     const std::function<dpp::task<std::string>(const std::string &,
                                                const std::string &)>
         &tool_executor) const {
+  if (!imagelist.empty()) {
+    co_return generate_text(prompt, imagelist, GenerationType::TextReply);
+  }
+
   ollama::options opts;
   opts["num_predict"] = 1000;
   opts["num_ctx"] = 40000;
