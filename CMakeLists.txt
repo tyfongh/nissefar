@@ -29,6 +29,7 @@ add_executable(${PROJECT_NAME}
   src/YoutubeService.cpp
   src/WebPageService.cpp
   src/VideoSummaryService.cpp
+  src/CalculationService.cpp
   src/DiffUtil.cpp
   src/Formatting.cpp
 )

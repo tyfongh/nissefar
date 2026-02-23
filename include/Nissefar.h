@@ -15,6 +15,7 @@ class GoogleDocsService;
 class YoutubeService;
 class WebPageService;
 class VideoSummaryService;
+class CalculationService;
 
 class Nissefar {
 private:
@@ -28,6 +29,7 @@ private:
   std::unique_ptr<YoutubeService> youtube_service;
   std::unique_ptr<WebPageService> web_page_service;
   std::unique_ptr<VideoSummaryService> video_summary_service;
+  std::unique_ptr<CalculationService> calculation_service;
 
   // Methods
 

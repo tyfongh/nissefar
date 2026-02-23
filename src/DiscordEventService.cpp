@@ -2,6 +2,7 @@
 #include <DiscordEventService.h>
 #include <Formatting.h>
 #include <GoogleDocsService.h>
+#include <CalculationService.h>
 #include <WebPageService.h>
 #include <VideoSummaryService.h>
 #include <YoutubeService.h>
@@ -19,11 +20,13 @@ DiscordEventService::DiscordEventService(
     const GoogleDocsService &google_docs_service,
     const WebPageService &web_page_service,
     const YoutubeService &youtube_service,
-    const VideoSummaryService &video_summary_service)
+    const VideoSummaryService &video_summary_service,
+    const CalculationService &calculation_service)
     : config(config), bot(bot), llm_service(llm_service),
       google_docs_service(google_docs_service),
       web_page_service(web_page_service), youtube_service(youtube_service),
-      video_summary_service(video_summary_service) {}
+      video_summary_service(video_summary_service),
+      calculation_service(calculation_service) {}
 
 std::string
 DiscordEventService::format_message_history(dpp::snowflake channel_id) const {
@@ -145,7 +148,10 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
          R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https URL to fetch"}},"required":["url"]})"},
         {"summarize_video",
          "Summarize a public online video URL by transcribing audio and producing a concise summary.",
-         R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https video URL to summarize"}},"required":["url"]})"}};
+         R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https video URL to summarize"}},"required":["url"]})"},
+        {"calculate_with_bc",
+         "Evaluate a mathematical expression using bc -l for accurate calculations. Supports arithmetic and bc math functions like sqrt(x), l(x), e(x), s(x), c(x), a(x), j(n,x).",
+         R"({"type":"object","properties":{"expression":{"type":"string","description":"Mathematical expression to evaluate"},"scale":{"type":"integer","description":"Optional decimal precision (0-100). Defaults to 10."}},"required":["expression"]})"}};
 
     const auto webpage_tool_calls = std::make_shared<int>(0);
     const auto video_tool_calls = std::make_shared<int>(0);
@@ -216,6 +222,28 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
 
         *video_tool_calls += 1;
         co_return co_await video_summary_service.summarize_video(requested_url);
+      }
+
+      if (tool_name == "calculate_with_bc") {
+        std::string expression;
+        int scale = 10;
+        try {
+          ollama::json args = ollama::json::parse(arguments_json);
+          if (args.contains("expression") && args["expression"].is_string()) {
+            expression = args["expression"].get<std::string>();
+          }
+          if (args.contains("scale") && args["scale"].is_number_integer()) {
+            scale = args["scale"].get<int>();
+          }
+        } catch (...) {
+          co_return "Tool error: invalid tool arguments JSON.";
+        }
+
+        if (expression.empty()) {
+          co_return "Tool error: missing required argument 'expression'.";
+        }
+
+        co_return co_await calculation_service.calculate_with_bc(expression, scale);
       }
 
       if (tool_name == "get_youtube_stream_status") {

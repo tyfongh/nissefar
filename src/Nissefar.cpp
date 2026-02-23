@@ -1,5 +1,6 @@
 #include <Database.h>
 #include <DiscordEventService.h>
+#include <CalculationService.h>
 #include <GoogleDocsService.h>
 #include <LlmService.h>
 #include <Nissefar.h>
@@ -31,9 +32,10 @@ Nissefar::Nissefar() {
   web_page_service = std::make_unique<WebPageService>(*bot);
   video_summary_service =
       std::make_unique<VideoSummaryService>(config, *bot);
+  calculation_service = std::make_unique<CalculationService>(*bot);
   discord_event_service = std::make_unique<DiscordEventService>(
       config, *bot, *llm_service, *google_docs_service, *web_page_service,
-      *youtube_service, *video_summary_service);
+      *youtube_service, *video_summary_service, *calculation_service);
 
   bot->log(dpp::ll_info, "Bot initialized");
 }
