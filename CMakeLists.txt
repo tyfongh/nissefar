@@ -34,6 +34,7 @@ add_executable(${PROJECT_NAME}
   src/VideoSummaryService.cpp
   src/CalculationService.cpp
   src/DiffUtil.cpp
+  src/Utf8Display.cpp
   src/Formatting.cpp
 )
 
@@ -75,3 +76,19 @@ set_target_properties(url_safety_tests PROPERTIES
 )
 
 add_test(NAME url_safety_tests COMMAND url_safety_tests)
+
+add_executable(formatting_tests
+  tests/FormattingTests.cpp
+  src/Utf8Display.cpp
+)
+
+target_include_directories(formatting_tests PRIVATE
+  include/
+)
+
+set_target_properties(formatting_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME formatting_tests COMMAND formatting_tests)
