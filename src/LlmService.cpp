@@ -137,6 +137,13 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
   }
 
   std::string answer{};
+  bool tool_calling_failed = false;
+  std::string failure_reason;
+  int tool_calls_executed = 0;
+  std::string last_tool_name;
+  std::string last_tool_args;
+  std::string last_tool_output_preview;
+  std::size_t last_tool_output_size = 0;
 
   try {
     bot.log(dpp::ll_info,
@@ -179,8 +186,20 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
                 std::format("Tool call requested: {} args={}", tool_name,
                             logged_args));
 
+        last_tool_name = tool_name;
+        last_tool_args = logged_args;
+
         const std::string tool_output =
             co_await tool_executor(tool_name, arguments_json);
+
+        last_tool_output_size = tool_output.size();
+        last_tool_output_preview = tool_output;
+        if (last_tool_output_preview.size() > 300) {
+          last_tool_output_preview.resize(300);
+          last_tool_output_preview += "...";
+        }
+        ++tool_calls_executed;
+
         bot.log(dpp::ll_info,
                 std::format("Tool call result: {} output_bytes={}", tool_name,
                             tool_output.size()));
@@ -192,10 +211,32 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
     }
 
     if (answer.empty()) {
-      answer = "I could not complete tool-calling for this request.";
+      tool_calling_failed = true;
+      failure_reason = "Tool-calling did not finish within 4 iterations.";
     }
   } catch (ollama::exception e) {
-    answer = std::format("Exception running llm: {}", e.what());
+    tool_calling_failed = true;
+    failure_reason = std::format("Exception while running tool-calling: {}", e.what());
+  }
+
+  if (tool_calling_failed) {
+    bot.log(
+        dpp::ll_warning,
+        std::format(
+            "Tool-calling failed, continuing without tools. reason='{}' "
+            "tool_calls_executed={} last_tool='{}' last_args='{}' "
+            "last_output_bytes={} last_output_preview='{}'",
+            failure_reason, tool_calls_executed, last_tool_name, last_tool_args,
+            last_tool_output_size, last_tool_output_preview));
+
+    try {
+      answer = ollama_client.chat(model, messages, opts);
+    } catch (ollama::exception e) {
+      bot.log(dpp::ll_error,
+              std::format("Fallback chat after tool-calling failure also failed: {}",
+                          e.what()));
+      answer = "I had trouble finishing that request right now.";
+    }
   }
 
   if (answer.length() > 1800)
