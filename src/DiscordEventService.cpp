@@ -163,10 +163,12 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
 
     const auto webpage_tool_calls = std::make_shared<int>(0);
     const auto video_tool_calls = std::make_shared<int>(0);
+    const auto analytics_tool_calls = std::make_shared<int>(0);
 
     const auto execute_tool =
         [this, webpage_tool_calls, video_tool_calls,
-         request_channel_id, request_server_id](const std::string &tool_name,
+         analytics_tool_calls, request_channel_id,
+         request_server_id](const std::string &tool_name,
                              const std::string &arguments_json)
         -> dpp::task<std::string> {
 
@@ -257,11 +259,17 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
       }
 
       if (tool_name == "query_channel_analytics") {
+        if (*analytics_tool_calls >= 1) {
+          co_return "Tool error: only one analytics query is allowed per request. Use the previous tool result to answer.";
+        }
+
         const auto parsed = analytics_query::parse_and_compile(arguments_json);
         if (!parsed.ok()) {
           co_return std::format("Tool error: invalid analytics request: {}",
                                 parsed.error);
         }
+
+        *analytics_tool_calls += 1;
 
         bot.log(dpp::ll_info,
                 std::format(

@@ -1,6 +1,8 @@
 #include <LlmService.h>
 #include <OllamaToolCalling.h>
 
+#include <unordered_set>
+
 namespace {
 
 std::string response_to_text(const ollama::response &response) {
@@ -186,6 +188,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
   std::string last_tool_args;
   std::string last_tool_output_preview;
   std::size_t last_tool_output_size = 0;
+  std::unordered_set<std::string> seen_tool_calls;
 
   try {
     bot.log(dpp::ll_info,
@@ -236,8 +239,20 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
         last_tool_name = tool_name;
         last_tool_args = logged_args;
 
-        const std::string tool_output =
-            co_await tool_executor(tool_name, arguments_json);
+        const std::string tool_key = tool_name + "\n" + arguments_json;
+
+        std::string tool_output;
+        if (seen_tool_calls.contains(tool_key)) {
+          tool_output =
+              "Tool error: duplicate tool call blocked in same request. Use the prior result.";
+          bot.log(dpp::ll_warning,
+                  std::format("Blocked duplicate tool call: {} args={}", tool_name,
+                              logged_args));
+        } else {
+          seen_tool_calls.insert(tool_key);
+          tool_output = co_await tool_executor(tool_name, arguments_json);
+          ++tool_calls_executed;
+        }
 
         last_tool_output_size = tool_output.size();
         last_tool_output_preview = tool_output;
@@ -245,8 +260,6 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
           last_tool_output_preview.resize(300);
           last_tool_output_preview += "...";
         }
-        ++tool_calls_executed;
-
         bot.log(dpp::ll_info,
                 std::format("Tool call result: {} output_bytes={}", tool_name,
                             tool_output.size()));
@@ -284,7 +297,10 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
             last_tool_output_size, last_tool_output_preview));
 
     try {
-      answer = ollama_client.chat(model, messages, opts);
+      const ollama::response fallback_response =
+          ollama_tools::chat(ollama_client, model, messages, opts,
+                             ollama_tools::tools{});
+      answer = response_to_text(fallback_response);
     } catch (ollama::exception e) {
       bot.log(dpp::ll_error,
               std::format("Fallback chat after tool-calling failure also failed: {}",
