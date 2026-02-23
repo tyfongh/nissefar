@@ -8,6 +8,8 @@
 #include <VideoSummaryService.h>
 #include <YoutubeService.h>
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <map>
 #include <memory>
@@ -135,6 +137,16 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
   if (answer) {
     const dpp::snowflake request_channel_id = event.msg.channel_id;
     const dpp::snowflake request_server_id = event.msg.guild_id;
+    std::string normalized_user_message = event.msg.content;
+    std::transform(normalized_user_message.begin(), normalized_user_message.end(),
+                   normalized_user_message.begin(), [](unsigned char ch) {
+                     return static_cast<char>(std::tolower(ch));
+                   });
+    const bool asks_most_used_reaction =
+        normalized_user_message.find("most used reaction") != std::string::npos ||
+        normalized_user_message.find("what reaction is most used") !=
+            std::string::npos ||
+        normalized_user_message.find("most used emoji") != std::string::npos;
 
     const std::vector<LlmService::ToolDefinition> available_tools = {
         {"get_banana_data", "Get EV trunk size dataset from Banana sheet", ""},
@@ -167,9 +179,9 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
 
     const auto execute_tool =
         [this, webpage_tool_calls, video_tool_calls,
-         analytics_tool_calls, request_channel_id,
-         request_server_id](const std::string &tool_name,
-                             const std::string &arguments_json)
+         analytics_tool_calls, request_channel_id, request_server_id,
+         asks_most_used_reaction](const std::string &tool_name,
+                              const std::string &arguments_json)
         -> dpp::task<std::string> {
 
       static const std::map<std::string, std::string> tool_to_sheet = {
@@ -263,7 +275,30 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
           co_return "Tool error: only one analytics query is allowed per request. Use the previous tool result to answer.";
         }
 
-        const auto parsed = analytics_query::parse_and_compile(arguments_json);
+        std::string effective_arguments_json = arguments_json;
+        try {
+          ollama::json args = ollama::json::parse(arguments_json);
+          if (args.is_object() && asks_most_used_reaction) {
+            if (!args.contains("metric") || !args["metric"].is_string() ||
+                args["metric"].get<std::string>() != "reactions_used") {
+              args["metric"] = "reactions_used";
+              if (!args.contains("query_type") || !args["query_type"].is_string()) {
+                args["query_type"] = "leaderboard";
+              }
+              effective_arguments_json = args.dump();
+              bot.log(dpp::ll_info,
+                      std::format("Overriding analytics metric to reactions_used "
+                                  "for reaction-usage question. original_args={} "
+                                  "effective_args={}",
+                                  arguments_json, effective_arguments_json));
+            }
+          }
+        } catch (...) {
+          co_return "Tool error: invalid tool arguments JSON.";
+        }
+
+        const auto parsed =
+            analytics_query::parse_and_compile(effective_arguments_json);
         if (!parsed.ok()) {
           co_return std::format("Tool error: invalid analytics request: {}",
                                 parsed.error);

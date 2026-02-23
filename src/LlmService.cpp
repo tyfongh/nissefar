@@ -273,6 +273,11 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
       if (analytics_tool_used) {
         bot.log(dpp::ll_info,
                 "Analytics tool result received; forcing final response without tools");
+        messages.emplace_back(
+            "system",
+            "Tool phase is complete. Use the returned analytics result as the final "
+            "source of truth. Do not ask to run another query. Provide the final "
+            "answer now.");
         response =
             ollama_tools::chat(ollama_client, model, messages, opts,
                                ollama_tools::tools{});
