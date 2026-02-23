@@ -1,6 +1,46 @@
 #include <LlmService.h>
 #include <OllamaToolCalling.h>
 
+namespace {
+
+std::string response_to_text(const ollama::response &response) {
+  const auto payload = response.as_json();
+
+  if (payload.contains("message") && payload["message"].is_object()) {
+    const auto &message = payload["message"];
+    if (message.contains("content")) {
+      if (message["content"].is_string()) {
+        return message["content"].get<std::string>();
+      }
+      if (!message["content"].is_null()) {
+        return message["content"].dump();
+      }
+    }
+  }
+
+  if (payload.contains("response") && payload["response"].is_string()) {
+    return payload["response"].get<std::string>();
+  }
+
+  return payload.dump();
+}
+
+std::string response_shape(const ollama::response &response) {
+  const auto payload = response.as_json();
+  if (!payload.contains("message") || !payload["message"].is_object()) {
+    return "missing message object";
+  }
+
+  const auto &message = payload["message"];
+  if (!message.contains("content")) {
+    return "message without content";
+  }
+
+  return std::format("message.content type={}", message["content"].type_name());
+}
+
+} // namespace
+
 LlmService::LlmService(const Config &config, dpp::cluster &bot)
     : config(config), bot(bot), ollama_client(config.ollama_server_url) {
   ollama_client.setReadTimeout(360);
@@ -83,6 +123,8 @@ std::string LlmService::generate_text(const std::string &prompt,
     }
   } catch (ollama::exception e) {
     answer = std::format("Exception running llm: {}", e.what());
+  } catch (const std::exception &e) {
+    answer = std::format("Exception running llm: {}", e.what());
   }
 
   if (gen_type == ImageDescription) {
@@ -154,7 +196,12 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
 
     for (int iteration = 0; iteration < 4; ++iteration) {
       if (!ollama_tools::has_tool_calls(response)) {
-        answer = response;
+        answer = response_to_text(response);
+        if (answer.empty()) {
+          bot.log(dpp::ll_warning,
+                  std::format("Tool chat returned empty assistant content ({})",
+                              response_shape(response)));
+        }
         break;
       }
 
@@ -217,6 +264,13 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
   } catch (ollama::exception e) {
     tool_calling_failed = true;
     failure_reason = std::format("Exception while running tool-calling: {}", e.what());
+  } catch (const std::exception &e) {
+    tool_calling_failed = true;
+    failure_reason =
+        std::format("Std exception while running tool-calling: {}", e.what());
+  } catch (...) {
+    tool_calling_failed = true;
+    failure_reason = "Unknown exception while running tool-calling.";
   }
 
   if (tool_calling_failed) {
@@ -234,6 +288,11 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
     } catch (ollama::exception e) {
       bot.log(dpp::ll_error,
               std::format("Fallback chat after tool-calling failure also failed: {}",
+                          e.what()));
+      answer = "I had trouble finishing that request right now.";
+    } catch (const std::exception &e) {
+      bot.log(dpp::ll_error,
+              std::format("Fallback chat after tool-calling failure threw: {}",
                           e.what()));
       answer = "I had trouble finishing that request right now.";
     }
