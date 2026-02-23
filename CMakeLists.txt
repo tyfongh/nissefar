@@ -36,6 +36,8 @@ add_executable(${PROJECT_NAME}
   src/DiffUtil.cpp
   src/Utf8Display.cpp
   src/Formatting.cpp
+  src/SqlSafety.cpp
+  src/AnalyticsQuery.cpp
 )
 
 add_compile_definitions(DPP_CORO=ON)
@@ -92,3 +94,36 @@ set_target_properties(formatting_tests PROPERTIES
 )
 
 add_test(NAME formatting_tests COMMAND formatting_tests)
+
+add_executable(sql_safety_tests
+  tests/SqlSafetyTests.cpp
+  src/SqlSafety.cpp
+)
+
+target_include_directories(sql_safety_tests PRIVATE
+  include/
+)
+
+set_target_properties(sql_safety_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME sql_safety_tests COMMAND sql_safety_tests)
+
+add_executable(analytics_query_tests
+  tests/AnalyticsQueryTests.cpp
+  src/AnalyticsQuery.cpp
+)
+
+target_include_directories(analytics_query_tests PRIVATE
+  include/
+  ${ollama_hpp_SOURCE_DIR}/include
+)
+
+set_target_properties(analytics_query_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME analytics_query_tests COMMAND analytics_query_tests)

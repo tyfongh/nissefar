@@ -29,6 +29,12 @@ private:
 public:
   static Database &instance();
   bool initialize(const std::string &connection_string);
+  pqxx::result execute_with_session_limits(const std::string &sql,
+                                           const pqxx::params &params,
+                                           int statement_timeout_ms,
+                                           int lock_timeout_ms,
+                                           int idle_timeout_ms,
+                                           bool read_only);
 
   // Need to put the template method in the header file
 

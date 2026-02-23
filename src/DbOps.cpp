@@ -1,7 +1,143 @@
+#include <AnalyticsQuery.h>
 #include <Database.h>
 #include <DbOps.h>
+#include <SqlSafety.h>
+
+#include <exception>
+#include <format>
+
+namespace {
+
+std::string escape_json(const std::string &value) {
+  std::string escaped;
+  escaped.reserve(value.size());
+  for (const char ch : value) {
+    switch (ch) {
+    case '\\':
+      escaped += "\\\\";
+      break;
+    case '"':
+      escaped += "\\\"";
+      break;
+    case '\n':
+      escaped += "\\n";
+      break;
+    case '\r':
+      escaped += "\\r";
+      break;
+    case '\t':
+      escaped += "\\t";
+      break;
+    default:
+      escaped += ch;
+      break;
+    }
+  }
+  return escaped;
+}
+
+std::string make_markdown_preview(const pqxx::result &res,
+                                  const std::string &query_type,
+                                  const std::string &metric) {
+  if (res.empty() || res.columns() == 0) {
+    return "No rows.";
+  }
+
+  std::string markdown;
+  if (query_type == "leaderboard") {
+    markdown += std::format("Top {}\n", metric);
+  } else {
+    markdown += std::format("{} over time\n", metric);
+  }
+
+  markdown += "| ";
+  for (pqxx::row::size_type i = 0; i < res.columns(); ++i) {
+    if (i > 0) {
+      markdown += " | ";
+    }
+    markdown += res.column_name(i);
+  }
+  markdown += " |\n|";
+
+  for (pqxx::row::size_type i = 0; i < res.columns(); ++i) {
+    if (i > 0) {
+      markdown += "|";
+    }
+    markdown += "---";
+  }
+  markdown += "|\n";
+
+  const pqxx::result::size_type preview_rows = std::min<pqxx::result::size_type>(res.size(), 15);
+  for (pqxx::result::size_type r = 0; r < preview_rows; ++r) {
+    markdown += "| ";
+    for (pqxx::row::size_type c = 0; c < res[r].size(); ++c) {
+      if (c > 0) {
+        markdown += " | ";
+      }
+      markdown += res[r][c].is_null() ? "null" : res[r][c].as<std::string>();
+    }
+    markdown += " |\n";
+  }
+
+  if (res.size() > preview_rows) {
+    markdown += std::format("... ({} more rows)", res.size() - preview_rows);
+  }
+
+  return markdown;
+}
+
+std::string build_json_result(const pqxx::result &res,
+                              const analytics_query::CompiledQuery &compiled,
+                              const std::string &markdown_preview) {
+  std::string output = std::format(
+      "{{\"scope\":\"{}\",\"query_type\":\"{}\",\"metric\":\"{}\",\"time_range\":\"{}\","
+      "\"interval\":\"{}\",\"limit\":{},\"markdown_preview\":\"{}\","
+      "\"columns\":[",
+      escape_json(compiled.scope), escape_json(compiled.query_type),
+      escape_json(compiled.metric),
+      escape_json(compiled.time_range), escape_json(compiled.interval), compiled.limit,
+      escape_json(markdown_preview));
+
+  for (pqxx::row::size_type i = 0; i < res.columns(); ++i) {
+    if (i > 0) {
+      output += ',';
+    }
+    output += '"';
+    output += escape_json(res.column_name(i));
+    output += '"';
+  }
+  output += "],\"rows\":[";
+
+  for (pqxx::result::size_type r = 0; r < res.size(); ++r) {
+    if (r > 0) {
+      output += ',';
+    }
+    output += '[';
+    for (pqxx::row::size_type c = 0; c < res[r].size(); ++c) {
+      if (c > 0) {
+        output += ',';
+      }
+      if (res[r][c].is_null()) {
+        output += "null";
+      } else {
+        output += '"';
+        output += escape_json(res[r][c].as<std::string>());
+        output += '"';
+      }
+    }
+    output += ']';
+  }
+  output += "]}";
+  return output;
+}
+
+} // namespace
 
 namespace dbops {
+
+std::string run_compiled_channel_analytics_query(
+    dpp::snowflake channel_id, dpp::snowflake server_id,
+    const analytics_query::CompiledQuery &compiled, const std::string &emoji);
 
 pqxx::result fetch_channel_history(dpp::snowflake channel_id, int max_history) {
   auto &db = Database::instance();
@@ -173,6 +309,106 @@ void insert_reaction(std::uint64_t message_id, std::uint64_t user_id,
   db.execute("insert into reaction (message_id, user_id, reaction) "
              "values ($1, $2, $3)",
              message_id, user_id, emoji);
+}
+
+std::string run_channel_analytics_query(dpp::snowflake channel_id,
+                                        const std::string &sql) {
+  const auto validation = sql_safety::validate_and_rewrite_channel_query(sql);
+  if (!validation.ok()) {
+    return std::format("Tool error: blocked SQL query: {}", validation.error);
+  }
+
+  auto &db = Database::instance();
+
+  pqxx::result res;
+  try {
+    const std::string wrapped_sql =
+        "select * from (" + validation.rewritten_sql +
+        ") as analytics_result limit 50";
+    pqxx::params params;
+    params.append(std::stol(channel_id.str()));
+    res = db.execute_with_session_limits(wrapped_sql, params, 2500, 500, 3000, true);
+  } catch (const std::exception &e) {
+    return std::format("Tool error: SQL query failed: {}", e.what());
+  }
+
+  std::string output = "{\"columns\":[";
+  for (pqxx::row::size_type i = 0; i < res.columns(); ++i) {
+    if (i > 0) {
+      output += ',';
+    }
+    output += '"';
+    output += escape_json(res.column_name(i));
+    output += '"';
+  }
+  output += "],\"rows\":[";
+
+  for (pqxx::result::size_type r = 0; r < res.size(); ++r) {
+    if (r > 0) {
+      output += ',';
+    }
+    output += '[';
+    for (pqxx::row::size_type c = 0; c < res[r].size(); ++c) {
+      if (c > 0) {
+        output += ',';
+      }
+      if (res[r][c].is_null()) {
+        output += "null";
+      } else {
+        output += '"';
+        output += escape_json(res[r][c].as<std::string>());
+        output += '"';
+      }
+    }
+    output += ']';
+  }
+  output += "]}";
+
+  return output;
+}
+
+std::string run_channel_analytics_request(dpp::snowflake channel_id,
+                                          dpp::snowflake server_id,
+                                          const std::string &request_json) {
+  const auto parsed = analytics_query::parse_and_compile(request_json);
+  if (!parsed.ok()) {
+    return std::format("Tool error: invalid analytics request: {}", parsed.error);
+  }
+
+  return run_compiled_channel_analytics_query(channel_id, server_id, *parsed.query,
+                                              parsed.emoji);
+}
+
+std::string run_compiled_channel_analytics_query(
+    dpp::snowflake channel_id, dpp::snowflake server_id,
+    const analytics_query::CompiledQuery &compiled, const std::string &emoji) {
+  const std::string sql = compiled.sql;
+
+
+  pqxx::params params;
+  if (compiled.scope == "server") {
+    if (server_id.str() == "0") {
+      return "Tool error: server scope is not available in this context.";
+    }
+    params.append(std::stol(server_id.str()));
+  } else {
+    params.append(std::stol(channel_id.str()));
+  }
+  if (compiled.needs_emoji_param) {
+    params.append(emoji);
+  }
+
+  pqxx::result res;
+  try {
+    res = Database::instance().execute_with_session_limits(sql, params, 2500, 500,
+                                                           3000, true);
+  } catch (const std::exception &e) {
+    return std::format("Tool error: analytics query failed: {}", e.what());
+  }
+
+  const std::string markdown_preview =
+      make_markdown_preview(res, compiled.query_type, compiled.metric);
+  return build_json_result(res, compiled, markdown_preview);
 }
 
 } // namespace dbops

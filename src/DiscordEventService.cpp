@@ -1,5 +1,6 @@
 #include <DbOps.h>
 #include <DiscordEventService.h>
+#include <AnalyticsQuery.h>
 #include <Formatting.h>
 #include <GoogleDocsService.h>
 #include <CalculationService.h>
@@ -132,6 +133,9 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
                        static_cast<std::int64_t>(event.msg.sent), image_desc};
 
   if (answer) {
+    const dpp::snowflake request_channel_id = event.msg.channel_id;
+    const dpp::snowflake request_server_id = event.msg.guild_id;
+
     const std::vector<LlmService::ToolDefinition> available_tools = {
         {"get_banana_data", "Get EV trunk size dataset from Banana sheet", ""},
         {"get_weight_data", "Get EV vehicle weight dataset from Weight sheet", ""},
@@ -150,6 +154,9 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         {"summarize_video",
          "Summarize a public online video URL by transcribing audio and producing a concise summary.",
          R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https video URL to summarize"}},"required":["url"]})"},
+        {"query_channel_analytics",
+         "Run structured analytics for the current channel or server. Use this for leaderboards and time-series trends. scope: channel (default) or server. query_type: leaderboard or time_series. metric: messages, images, reactions_given, reactions_received. time_range: all_time, last_7d, last_30d, this_month, last_month. interval (time_series only): day, week, month. Optional emoji filter for reactions metrics. Examples: most chatters last month => {\"scope\":\"server\",\"query_type\":\"leaderboard\",\"metric\":\"messages\",\"time_range\":\"last_month\",\"limit\":10}. clown receivers this month => {\"scope\":\"server\",\"query_type\":\"leaderboard\",\"metric\":\"reactions_received\",\"time_range\":\"this_month\",\"emoji\":\"🤡\",\"limit\":10}. message trend last 30d => {\"scope\":\"channel\",\"query_type\":\"time_series\",\"metric\":\"messages\",\"time_range\":\"last_30d\",\"interval\":\"day\",\"limit\":30}.",
+         R"({"type":"object","properties":{"scope":{"type":"string","enum":["channel","server"]},"query_type":{"type":"string","enum":["leaderboard","time_series"]},"metric":{"type":"string","enum":["messages","images","reactions_given","reactions_received"]},"time_range":{"type":"string","enum":["all_time","last_7d","last_30d","this_month","last_month"]},"interval":{"type":"string","enum":["day","week","month"]},"emoji":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}},"required":["query_type","metric"]})"},
         {"calculate_with_bc",
          "Evaluate a mathematical expression using bc -l for accurate calculations. Supports arithmetic and bc math functions like sqrt(x), l(x), e(x), s(x), c(x), a(x), j(n,x).",
          R"({"type":"object","properties":{"expression":{"type":"string","description":"Mathematical expression to evaluate"},"scale":{"type":"integer","description":"Optional decimal precision (0-100). Defaults to 10."}},"required":["expression"]})"}};
@@ -158,8 +165,10 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
     const auto video_tool_calls = std::make_shared<int>(0);
 
     const auto execute_tool =
-        [this, webpage_tool_calls, video_tool_calls](const std::string &tool_name,
-                const std::string &arguments_json) -> dpp::task<std::string> {
+        [this, webpage_tool_calls, video_tool_calls,
+         request_channel_id, request_server_id](const std::string &tool_name,
+                             const std::string &arguments_json)
+        -> dpp::task<std::string> {
 
       static const std::map<std::string, std::string> tool_to_sheet = {
           {"get_banana_data", "Banana"},
@@ -245,6 +254,28 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         }
 
         co_return co_await calculation_service.calculate_with_bc(expression, scale);
+      }
+
+      if (tool_name == "query_channel_analytics") {
+        const auto parsed = analytics_query::parse_and_compile(arguments_json);
+        if (!parsed.ok()) {
+          co_return std::format("Tool error: invalid analytics request: {}",
+                                parsed.error);
+        }
+
+        bot.log(dpp::ll_info,
+                std::format(
+                    "Executing analytics query in channel {} type={} metric={} "
+                    "range={} interval={} limit={} sql={}",
+                    parsed.query->scope == "server" ? request_server_id.str()
+                                                     : request_channel_id.str(),
+                    parsed.query->query_type,
+                    parsed.query->metric, parsed.query->time_range,
+                    parsed.query->interval, parsed.query->limit,
+                    parsed.query->sql));
+
+        co_return dbops::run_compiled_channel_analytics_query(
+            request_channel_id, request_server_id, *parsed.query, parsed.emoji);
       }
 
       if (tool_name == "get_youtube_stream_status") {

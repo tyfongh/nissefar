@@ -2,6 +2,7 @@
 #define DBOPS_H
 
 #include <Domain.h>
+#include <AnalyticsQuery.h>
 #include <optional>
 #include <pqxx/pqxx>
 
@@ -34,6 +35,15 @@ std::optional<std::uint64_t> find_user_id(dpp::snowflake user_snowflake);
 void delete_reaction(std::uint64_t reaction_id);
 void insert_reaction(std::uint64_t message_id, std::uint64_t user_id,
                      const std::string &emoji);
+
+std::string run_channel_analytics_query(dpp::snowflake channel_id,
+                                        const std::string &sql);
+std::string run_channel_analytics_request(dpp::snowflake channel_id,
+                                          dpp::snowflake server_id,
+                                          const std::string &request_json);
+std::string run_compiled_channel_analytics_query(
+    dpp::snowflake channel_id, dpp::snowflake server_id,
+    const analytics_query::CompiledQuery &compiled, const std::string &emoji);
 
 } // namespace dbops
 
