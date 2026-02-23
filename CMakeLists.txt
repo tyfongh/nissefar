@@ -30,6 +30,7 @@ add_executable(${PROJECT_NAME}
   src/GoogleDocsService.cpp
   src/YoutubeService.cpp
   src/UrlSafety.cpp
+  src/HtmlTextExtract.cpp
   src/WebPageService.cpp
   src/VideoSummaryService.cpp
   src/CalculationService.cpp
@@ -127,3 +128,19 @@ set_target_properties(analytics_query_tests PROPERTIES
 )
 
 add_test(NAME analytics_query_tests COMMAND analytics_query_tests)
+
+add_executable(html_text_extract_tests
+  tests/HtmlTextExtractTests.cpp
+  src/HtmlTextExtract.cpp
+)
+
+target_include_directories(html_text_extract_tests PRIVATE
+  include/
+)
+
+set_target_properties(html_text_extract_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME html_text_extract_tests COMMAND html_text_extract_tests)

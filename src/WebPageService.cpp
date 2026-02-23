@@ -1,11 +1,10 @@
+#include <HtmlTextExtract.h>
 #include <WebPageService.h>
 #include <UrlSafety.h>
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <format>
-#include <regex>
 #include <sstream>
 
 namespace {
@@ -14,59 +13,6 @@ std::string to_lower(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return value;
-}
-
-std::string decode_entities(std::string text) {
-  const std::array<std::pair<std::string, std::string>, 6> entities = {
-      std::pair{"&amp;", "&"}, std::pair{"&lt;", "<"},
-      std::pair{"&gt;", ">"},  std::pair{"&quot;", "\""},
-      std::pair{"&#39;", "'"}, std::pair{"&nbsp;", " "}};
-
-  for (const auto &[entity, value] : entities) {
-    size_t pos = 0;
-    while ((pos = text.find(entity, pos)) != std::string::npos) {
-      text.replace(pos, entity.size(), value);
-      pos += value.size();
-    }
-  }
-
-  return text;
-}
-
-std::string strip_html(const std::string &html) {
-  std::string text = html;
-  text = std::regex_replace(text,
-                            std::regex(R"(<script\b[^>]*>[\s\S]*?</script>)",
-                                       std::regex::icase),
-                            " ");
-  text = std::regex_replace(text,
-                            std::regex(R"(<style\b[^>]*>[\s\S]*?</style>)",
-                                       std::regex::icase),
-                            " ");
-  text = std::regex_replace(text,
-                            std::regex(
-                                R"(<(nav|footer|header|form|svg)\b[^>]*>[\s\S]*?</\1>)",
-                                std::regex::icase),
-                            " ");
-  text = std::regex_replace(text, std::regex(R"(<[^>]+>)"), " ");
-  text = decode_entities(text);
-  text = std::regex_replace(text, std::regex(R"(\s+)", std::regex::ECMAScript), " ");
-  return text;
-}
-
-std::string extract_title(const std::string &html) {
-  std::smatch match;
-  if (std::regex_search(html, match,
-                        std::regex(R"(<title[^>]*>([\s\S]*?)</title>)",
-                                   std::regex::icase)) &&
-      match.size() > 1) {
-    std::string title = strip_html(match[1].str());
-    if (title.size() > 300) {
-      title.resize(300);
-    }
-    return title;
-  }
-  return "";
 }
 
 std::string normalize_location_header(const std::string &location,
@@ -159,11 +105,13 @@ WebPageService::fetch_webpage_text(const std::string &url) const {
   std::string extracted_text;
   if (content_type.find("text/html") != std::string::npos ||
       content_type.empty()) {
-    title = extract_title(body);
-    extracted_text = strip_html(body);
+    title = html_text_extract::extract_title_from_html(body);
+    if (title.size() > 300) {
+      title.resize(300);
+    }
+    extracted_text = html_text_extract::extract_text_from_html(body);
   } else {
-    extracted_text = decode_entities(body);
-    extracted_text = std::regex_replace(extracted_text, std::regex(R"(\s+)"), " ");
+    extracted_text = html_text_extract::normalize_plain_text(body);
   }
 
   bool truncated = false;
