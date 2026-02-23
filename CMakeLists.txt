@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.22)
 
 project(nissefar VERSION 0.1 DESCRIPTION "Nissefar")
 
+enable_testing()
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(FetchContent)
@@ -27,6 +29,7 @@ add_executable(${PROJECT_NAME}
   src/DiscordEventService.cpp
   src/GoogleDocsService.cpp
   src/YoutubeService.cpp
+  src/UrlSafety.cpp
   src/WebPageService.cpp
   src/VideoSummaryService.cpp
   src/CalculationService.cpp
@@ -56,3 +59,19 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
  )
+
+add_executable(url_safety_tests
+  tests/UrlSafetyTests.cpp
+  src/UrlSafety.cpp
+)
+
+target_include_directories(url_safety_tests PRIVATE
+  include/
+)
+
+set_target_properties(url_safety_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME url_safety_tests COMMAND url_safety_tests)

@@ -1,4 +1,5 @@
 #include <VideoSummaryService.h>
+#include <UrlSafety.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -10,7 +11,6 @@
 #include <format>
 #include <optional>
 #include <poll.h>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <sys/wait.h>
@@ -33,10 +33,6 @@ std::string trim_copy(std::string value) {
   return value;
 }
 
-bool is_valid_http_url(const std::string &url) {
-  static const std::regex url_re(R"(^https?://\S+$)", std::regex::icase);
-  return std::regex_match(url, url_re);
-}
 
 std::optional<std::filesystem::path>
 resolve_script_path(const Config &config) {
@@ -193,8 +189,10 @@ dpp::task<std::string>
 VideoSummaryService::summarize_video(const std::string &url) const {
   constexpr std::chrono::seconds timeout(300);
 
-  if (!is_valid_http_url(url)) {
-    co_return "Tool error: invalid URL. Use an absolute http/https URL.";
+  if (const auto validation_error =
+          url_safety::validate_public_http_url(url, nullptr);
+      validation_error.has_value()) {
+    co_return *validation_error;
   }
 
   const auto script_path = resolve_script_path(config);
