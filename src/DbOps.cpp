@@ -37,17 +37,17 @@ std::string escape_json(const std::string &value) {
 }
 
 std::string make_markdown_preview(const pqxx::result &res,
-                                  const std::string &query_type,
-                                  const std::string &metric) {
+                                  const analytics_query::CompiledQuery &compiled) {
   if (res.empty() || res.columns() == 0) {
     return "No rows.";
   }
 
   std::string markdown;
-  if (query_type == "leaderboard") {
-    markdown += std::format("Top {}\n", metric);
+  if (compiled.kind == "leaderboard") {
+    markdown += std::format("Top {} by {}\n", compiled.target, compiled.group_by);
   } else {
-    markdown += std::format("{} over time\n", metric);
+    markdown += std::format("{} over time ({})\n", compiled.target,
+                            compiled.group_by);
   }
 
   markdown += "| ";
@@ -90,12 +90,12 @@ std::string build_json_result(const pqxx::result &res,
                               const analytics_query::CompiledQuery &compiled,
                               const std::string &markdown_preview) {
   std::string output = std::format(
-      "{{\"scope\":\"{}\",\"query_type\":\"{}\",\"metric\":\"{}\",\"time_range\":\"{}\","
-      "\"interval\":\"{}\",\"limit\":{},\"markdown_preview\":\"{}\","
+      "{{\"scope\":\"{}\",\"kind\":\"{}\",\"target\":\"{}\",\"group_by\":\"{}\",\"time_range\":\"{}\","
+      "\"limit\":{},\"markdown_preview\":\"{}\","
       "\"columns\":[",
-      escape_json(compiled.scope), escape_json(compiled.query_type),
-      escape_json(compiled.metric),
-      escape_json(compiled.time_range), escape_json(compiled.interval), compiled.limit,
+      escape_json(compiled.scope), escape_json(compiled.kind),
+      escape_json(compiled.target), escape_json(compiled.group_by),
+      escape_json(compiled.time_range), compiled.limit,
       escape_json(markdown_preview));
 
   for (pqxx::row::size_type i = 0; i < res.columns(); ++i) {
@@ -137,7 +137,7 @@ namespace dbops {
 
 std::string run_compiled_channel_analytics_query(
     dpp::snowflake channel_id, dpp::snowflake server_id,
-    const analytics_query::CompiledQuery &compiled, const std::string &emoji);
+    const analytics_query::CompiledQuery &compiled);
 
 pqxx::result fetch_channel_history(dpp::snowflake channel_id, int max_history) {
   auto &db = Database::instance();
@@ -375,13 +375,12 @@ std::string run_channel_analytics_request(dpp::snowflake channel_id,
     return std::format("Tool error: invalid analytics request: {}", parsed.error);
   }
 
-  return run_compiled_channel_analytics_query(channel_id, server_id, *parsed.query,
-                                              parsed.emoji);
+  return run_compiled_channel_analytics_query(channel_id, server_id, *parsed.query);
 }
 
 std::string run_compiled_channel_analytics_query(
     dpp::snowflake channel_id, dpp::snowflake server_id,
-    const analytics_query::CompiledQuery &compiled, const std::string &emoji) {
+    const analytics_query::CompiledQuery &compiled) {
   const std::string sql = compiled.sql;
 
 
@@ -394,8 +393,8 @@ std::string run_compiled_channel_analytics_query(
   } else {
     params.append(std::stol(channel_id.str()));
   }
-  if (compiled.needs_emoji_param) {
-    params.append(emoji);
+  for (const auto &param : compiled.bind_params) {
+    params.append(param);
   }
 
   pqxx::result res;
@@ -406,8 +405,7 @@ std::string run_compiled_channel_analytics_query(
     return std::format("Tool error: analytics query failed: {}", e.what());
   }
 
-  const std::string markdown_preview =
-      make_markdown_preview(res, compiled.query_type, compiled.metric);
+  const std::string markdown_preview = make_markdown_preview(res, compiled);
   return build_json_result(res, compiled, markdown_preview);
 }
 

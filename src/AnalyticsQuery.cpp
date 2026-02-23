@@ -4,16 +4,110 @@
 #include <cctype>
 #include <format>
 #include <set>
+#include <string>
 
 #include <ollama.hpp>
 
 namespace {
+
+struct EmojiFilter {
+  enum class Mode { Exact, Regex };
+  Mode mode;
+  std::string value;
+};
 
 std::string to_lower_copy(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
     return static_cast<char>(std::tolower(ch));
   });
   return value;
+}
+
+std::string trim_copy(const std::string &value) {
+  const auto start = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
+    return std::isspace(ch) != 0;
+  });
+  if (start == value.end()) {
+    return "";
+  }
+  const auto end = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
+    return std::isspace(ch) != 0;
+  }).base();
+  return std::string(start, end);
+}
+
+bool is_simple_emoji_name(const std::string &value) {
+  if (value.empty()) {
+    return false;
+  }
+  return std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+    return std::isalnum(ch) != 0 || ch == '_';
+  });
+}
+
+bool split_custom_emoji_payload(const std::string &payload, std::string &name,
+                                std::string &id) {
+  std::string core = payload;
+  if (!core.empty() && core[0] == 'a' && core.size() >= 3 && core[1] == ':') {
+    core = core.substr(2);
+  }
+
+  const auto colon_pos = core.find(':');
+  if (colon_pos == std::string::npos) {
+    return false;
+  }
+
+  name = core.substr(0, colon_pos);
+  id = core.substr(colon_pos + 1);
+  if (!is_simple_emoji_name(name) || id.empty()) {
+    return false;
+  }
+  return std::all_of(id.begin(), id.end(), [](unsigned char ch) {
+    return std::isdigit(ch) != 0;
+  });
+}
+
+std::optional<EmojiFilter> normalize_emoji_filter(const std::string &raw) {
+  const std::string token = trim_copy(raw);
+  if (token.empty()) {
+    return std::nullopt;
+  }
+
+  if (token.size() >= 3 && token.front() == ':' && token.back() == ':') {
+    const std::string name = token.substr(1, token.size() - 2);
+    if (!is_simple_emoji_name(name)) {
+      return std::nullopt;
+    }
+    return EmojiFilter{EmojiFilter::Mode::Regex,
+                       std::format("^<:(?:a:)?{}:[0-9]+>$", name)};
+  }
+
+  if (token.size() >= 4 && token.front() == '<' && token.back() == '>') {
+    std::string name;
+    std::string id;
+    if (token[1] == ':') {
+      if (!split_custom_emoji_payload(token.substr(2, token.size() - 3), name, id)) {
+        return std::nullopt;
+      }
+      return EmojiFilter{EmojiFilter::Mode::Regex,
+                         std::format("^<:(?:a:)?{}:[0-9]+>$", name)};
+    }
+
+    if (token[1] == 'a' && token.size() > 5 && token[2] == ':') {
+      if (!split_custom_emoji_payload(token.substr(3, token.size() - 4), name, id)) {
+        return std::nullopt;
+      }
+      return EmojiFilter{EmojiFilter::Mode::Regex,
+                         std::format("^<:(?:a:)?{}:[0-9]+>$", name)};
+    }
+  }
+
+  if (is_simple_emoji_name(token)) {
+    return EmojiFilter{EmojiFilter::Mode::Regex,
+                       std::format("^<:(?:a:)?{}:[0-9]+>$", token)};
+  }
+
+  return EmojiFilter{EmojiFilter::Mode::Exact, token};
 }
 
 std::string time_filter_sql(const std::string &time_range, const std::string &time_expr) {
@@ -61,6 +155,84 @@ bool parse_limit(const ollama::json &request, int default_limit, int max_limit,
   return true;
 }
 
+bool parse_emoji_filters(const ollama::json &request,
+                         std::vector<EmojiFilter> &filters,
+                         std::vector<std::string> &bind_params,
+                         std::string &error) {
+  if (!request.contains("filters") || !request["filters"].is_object()) {
+    return true;
+  }
+
+  const auto &obj = request["filters"];
+  if (!obj.contains("emojis")) {
+    return true;
+  }
+  if (!obj["emojis"].is_array()) {
+    error = "filters.emojis must be an array.";
+    return false;
+  }
+
+  std::set<std::string> dedupe;
+  for (const auto &item : obj["emojis"]) {
+    if (!item.is_string()) {
+      error = "filters.emojis values must be strings.";
+      return false;
+    }
+
+    const std::string raw = trim_copy(item.get<std::string>());
+    if (raw.empty()) {
+      continue;
+    }
+
+    auto filter = normalize_emoji_filter(raw);
+    if (!filter.has_value()) {
+      error = std::format("unsupported emoji token '{}'.", raw);
+      return false;
+    }
+
+    const std::string key =
+        std::format("{}:{}", filter->mode == EmojiFilter::Mode::Exact ? "eq" : "rx",
+                    filter->value);
+    if (dedupe.contains(key)) {
+      continue;
+    }
+    dedupe.insert(key);
+    filters.push_back(*filter);
+  }
+
+  if (filters.size() > 12) {
+    error = "at most 12 emoji filters are allowed.";
+    return false;
+  }
+
+  for (const auto &filter : filters) {
+    bind_params.push_back(filter.value);
+  }
+  return true;
+}
+
+std::string build_emoji_clause(const std::vector<EmojiFilter> &filters,
+                               int first_param_index) {
+  if (filters.empty()) {
+    return "1 = 1";
+  }
+
+  std::string clause = "(";
+  for (std::size_t i = 0; i < filters.size(); ++i) {
+    if (i > 0) {
+      clause += " or ";
+    }
+    const int param_index = first_param_index + static_cast<int>(i);
+    if (filters[i].mode == EmojiFilter::Mode::Exact) {
+      clause += std::format("r.reaction = ${}", param_index);
+    } else {
+      clause += std::format("r.reaction ~ ${}", param_index);
+    }
+  }
+  clause += ")";
+  return clause;
+}
+
 } // namespace
 
 namespace analytics_query {
@@ -70,22 +242,26 @@ ParseResult parse_and_compile(const std::string &request_json) {
   try {
     request = ollama::json::parse(request_json);
   } catch (...) {
-    return {std::nullopt, "", "invalid tool arguments JSON."};
+    return {std::nullopt, "invalid tool arguments JSON."};
   }
 
   if (!request.is_object()) {
-    return {std::nullopt, "", "request must be a JSON object."};
+    return {std::nullopt, "request must be a JSON object."};
   }
 
-  if (!request.contains("query_type") || !request["query_type"].is_string()) {
-    return {std::nullopt, "", "missing required argument 'query_type'."};
+  if (!request.contains("kind") || !request["kind"].is_string()) {
+    return {std::nullopt, "missing required argument 'kind'."};
   }
-  if (!request.contains("metric") || !request["metric"].is_string()) {
-    return {std::nullopt, "", "missing required argument 'metric'."};
+  if (!request.contains("target") || !request["target"].is_string()) {
+    return {std::nullopt, "missing required argument 'target'."};
+  }
+  if (!request.contains("group_by") || !request["group_by"].is_string()) {
+    return {std::nullopt, "missing required argument 'group_by'."};
   }
 
-  const std::string query_type = to_lower_copy(request["query_type"].get<std::string>());
-  const std::string metric = to_lower_copy(request["metric"].get<std::string>());
+  const std::string kind = to_lower_copy(request["kind"].get<std::string>());
+  const std::string target = to_lower_copy(request["target"].get<std::string>());
+  const std::string group_by = to_lower_copy(request["group_by"].get<std::string>());
   const std::string scope =
       request.contains("scope") && request["scope"].is_string()
           ? to_lower_copy(request["scope"].get<std::string>())
@@ -95,97 +271,89 @@ ParseResult parse_and_compile(const std::string &request_json) {
           ? to_lower_copy(request["time_range"].get<std::string>())
           : "last_30d";
 
-  static const std::set<std::string> allowed_query_types = {"leaderboard",
-                                                            "time_series"};
-  static const std::set<std::string> allowed_metrics = {
-      "messages", "images", "reactions_given", "reactions_received",
-      "reactions_used"};
+  static const std::set<std::string> allowed_kinds = {"leaderboard", "time_series"};
+  static const std::set<std::string> allowed_targets = {"reactions", "messages"};
+  static const std::set<std::string> allowed_scopes = {"channel", "server"};
   static const std::set<std::string> allowed_time_ranges = {
       "all_time", "last_7d", "last_30d", "this_month", "last_month"};
-  static const std::set<std::string> allowed_scopes = {"channel", "server"};
 
-  if (!allowed_query_types.contains(query_type)) {
-    return {std::nullopt, "",
-            "unsupported query_type. Use 'leaderboard' or 'time_series'."};
+  if (!allowed_kinds.contains(kind)) {
+    return {std::nullopt, "unsupported kind. Use leaderboard or time_series."};
   }
-  if (!allowed_metrics.contains(metric)) {
-    return {std::nullopt, "",
-            "unsupported metric. Use messages, images, reactions_given, "
-            "reactions_received, or reactions_used."};
-  }
-  if (!allowed_time_ranges.contains(time_range)) {
-    return {std::nullopt, "", "unsupported time_range."};
+  if (!allowed_targets.contains(target)) {
+    return {std::nullopt, "unsupported target. Use reactions or messages."};
   }
   if (!allowed_scopes.contains(scope)) {
-    return {std::nullopt, "", "unsupported scope. Use channel or server."};
+    return {std::nullopt, "unsupported scope. Use channel or server."};
+  }
+  if (!allowed_time_ranges.contains(time_range)) {
+    return {std::nullopt, "unsupported time_range."};
   }
 
-  std::string emoji;
-  if (request.contains("emoji") && !request["emoji"].is_null()) {
-    if (!request["emoji"].is_string()) {
-      return {std::nullopt, "", "emoji must be a string when provided."};
-    }
-    emoji = request["emoji"].get<std::string>();
-    if (emoji.size() > 32) {
-      return {std::nullopt, "", "emoji filter is too long."};
-    }
+  static const std::set<std::string> leaderboard_group_by = {
+      "emoji", "message", "reactor", "recipient", "author"};
+  static const std::set<std::string> time_series_group_by = {"day", "week", "month"};
+
+  if (kind == "leaderboard" && !leaderboard_group_by.contains(group_by)) {
+    return {std::nullopt,
+            "unsupported group_by for leaderboard. Use emoji, message, reactor, "
+            "recipient, or author."};
+  }
+  if (kind == "time_series" && !time_series_group_by.contains(group_by)) {
+    return {std::nullopt,
+            "unsupported group_by for time_series. Use day, week, or month."};
+  }
+
+  if (target == "messages" &&
+      (group_by == "emoji" || group_by == "reactor" || group_by == "recipient")) {
+    return {std::nullopt,
+            "unsupported target/group_by combination for messages target."};
+  }
+  if (target == "reactions" && group_by == "author") {
+    return {std::nullopt,
+            "unsupported target/group_by combination for reactions target."};
   }
 
   int limit = 10;
-  const int default_limit = query_type == "leaderboard" ? 10 : 30;
-  const int max_limit = query_type == "leaderboard" ? 25 : 120;
+  const int default_limit = kind == "leaderboard" ? 10 : 30;
+  const int max_limit = kind == "leaderboard" ? 25 : 120;
   if (!parse_limit(request, default_limit, max_limit, limit)) {
-    return {std::nullopt, "", "limit must be an integer."};
+    return {std::nullopt, "limit must be an integer."};
   }
 
-  std::string interval = "day";
-  if (query_type == "time_series") {
-    if (request.contains("interval") && request["interval"].is_string()) {
-      interval = to_lower_copy(request["interval"].get<std::string>());
-    }
-    if (interval != "day" && interval != "week" && interval != "month") {
-      return {std::nullopt, "", "unsupported interval. Use day, week, or month."};
-    }
-  }
-
-  const std::string filter_time_expr = "m.created_at";
-  const std::string time_filter = time_filter_sql(time_range, filter_time_expr);
+  const std::string time_filter = time_filter_sql(time_range, "m.created_at");
   if (time_filter.empty()) {
-    return {std::nullopt, "", "invalid time range filter."};
+    return {std::nullopt, "invalid time range filter."};
   }
 
-  std::string metric_expr;
-  if (metric == "messages") {
-    metric_expr = "count(*)";
-  } else if (metric == "images") {
-    metric_expr = "sum(coalesce(array_length(m.image_descriptions, 1), 0))";
-  } else {
-    metric_expr = "count(*)";
+  std::vector<EmojiFilter> emoji_filters;
+  std::vector<std::string> bind_params;
+  std::string emoji_error;
+  if (!parse_emoji_filters(request, emoji_filters, bind_params, emoji_error)) {
+    return {std::nullopt, emoji_error};
   }
 
-  std::string sql;
-  bool needs_emoji_param = false;
   const std::string scope_filter =
       scope == "server" ? "s.server_snowflake_id = $1" : "c.channel_snowflake_id = $1";
   const std::string scope_join =
       scope == "server" ? " join server s on s.server_id = c.server_id " : "";
+  const std::string emoji_filter_clause = build_emoji_clause(emoji_filters, 2);
 
-  if (query_type == "leaderboard") {
-    if (metric == "messages" || metric == "images") {
+  std::string sql;
+  if (kind == "leaderboard") {
+    if (target == "reactions" && group_by == "emoji") {
       sql = std::format(
-          "select u.user_name as label, {} as value "
-          "from message m "
-          "join discord_user u on u.user_id = m.user_id "
+          "select r.reaction as label, count(*) as value "
+          "from reaction r "
+          "join message m on m.message_id = r.message_id "
           "join channel c on c.channel_id = m.channel_id "
           "{}"
-          "where ({}) and ({}) "
-          "group by u.user_name "
+          "where ({}) and ({}) and ({}) "
+          "group by r.reaction "
           "order by value desc, label asc "
           "limit {}",
-          metric_expr, scope_join, scope_filter, time_filter, limit);
-    } else if (metric == "reactions_given") {
-      const std::string emoji_filter = emoji.empty() ? "1 = 1" : "r.reaction = $2";
-      needs_emoji_param = !emoji.empty();
+          scope_join, scope_filter, time_filter, emoji_filter_clause, limit);
+    } else if (target == "reactions" && group_by == "reactor") {
       sql = std::format(
           "select u.user_name as label, count(*) as value "
           "from reaction r "
@@ -197,24 +365,8 @@ ParseResult parse_and_compile(const std::string &request_json) {
           "group by u.user_name "
           "order by value desc, label asc "
           "limit {}",
-          scope_join, scope_filter, time_filter, emoji_filter, limit);
-    } else if (metric == "reactions_used") {
-      const std::string emoji_filter = emoji.empty() ? "1 = 1" : "r.reaction = $2";
-      needs_emoji_param = !emoji.empty();
-      sql = std::format(
-          "select r.reaction as label, count(*) as value "
-          "from reaction r "
-          "join message m on m.message_id = r.message_id "
-          "join channel c on c.channel_id = m.channel_id "
-          "{}"
-          "where ({}) and ({}) and ({}) "
-          "group by r.reaction "
-          "order by value desc, label asc "
-          "limit {}",
-          scope_join, scope_filter, time_filter, emoji_filter, limit);
-    } else {
-      const std::string emoji_filter = emoji.empty() ? "1 = 1" : "r.reaction = $2";
-      needs_emoji_param = !emoji.empty();
+          scope_join, scope_filter, time_filter, emoji_filter_clause, limit);
+    } else if (target == "reactions" && group_by == "recipient") {
       sql = std::format(
           "select u.user_name as label, count(*) as value "
           "from reaction r "
@@ -226,12 +378,45 @@ ParseResult parse_and_compile(const std::string &request_json) {
           "group by u.user_name "
           "order by value desc, label asc "
           "limit {}",
-          scope_join, scope_filter, time_filter, emoji_filter, limit);
+          scope_join, scope_filter, time_filter, emoji_filter_clause, limit);
+    } else if ((target == "reactions" || target == "messages") &&
+               group_by == "message") {
+      const std::string reaction_join = target == "reactions"
+                                            ? "join reaction r on r.message_id = m.message_id "
+                                            : "left join reaction r on r.message_id = m.message_id ";
+      sql = std::format(
+          "select m.message_snowflake_id::text as message_id, "
+          "left(coalesce(m.content, ''), 120) as snippet, "
+          "count(r.reaction) as value "
+          "from message m "
+          "{}"
+          "join channel c on c.channel_id = m.channel_id "
+          "{}"
+          "where ({}) and ({}) and ({}) "
+          "group by m.message_snowflake_id, m.content "
+          "order by value desc, message_id desc "
+          "limit {}",
+          reaction_join, scope_join, scope_filter, time_filter, emoji_filter_clause,
+          limit);
+    } else if (target == "messages" && group_by == "author") {
+      sql = std::format(
+          "select u.user_name as label, count(*) as value "
+          "from message m "
+          "join discord_user u on u.user_id = m.user_id "
+          "join channel c on c.channel_id = m.channel_id "
+          "{}"
+          "where ({}) and ({}) "
+          "group by u.user_name "
+          "order by value desc, label asc "
+          "limit {}",
+          scope_join, scope_filter, time_filter, limit);
+    } else {
+      return {std::nullopt, "unsupported leaderboard combination."};
     }
   } else {
-    if (metric == "messages" || metric == "images") {
+    if (target == "messages") {
       sql = std::format(
-          "select date_trunc('{}', m.created_at) as bucket_start, {} as value "
+          "select date_trunc('{}', m.created_at) as bucket_start, count(*) as value "
           "from message m "
           "join channel c on c.channel_id = m.channel_id "
           "{}"
@@ -239,38 +424,8 @@ ParseResult parse_and_compile(const std::string &request_json) {
           "group by bucket_start "
           "order by bucket_start asc "
           "limit {}",
-          interval, metric_expr, scope_join, scope_filter, time_filter, limit);
-    } else if (metric == "reactions_given") {
-      const std::string emoji_filter = emoji.empty() ? "1 = 1" : "r.reaction = $2";
-      needs_emoji_param = !emoji.empty();
-      sql = std::format(
-          "select date_trunc('{}', m.created_at) as bucket_start, count(*) as value "
-          "from reaction r "
-          "join message m on m.message_id = r.message_id "
-          "join channel c on c.channel_id = m.channel_id "
-          "{}"
-          "where ({}) and ({}) and ({}) "
-          "group by bucket_start "
-          "order by bucket_start asc "
-          "limit {}",
-          interval, scope_join, scope_filter, time_filter, emoji_filter, limit);
-    } else if (metric == "reactions_used") {
-      const std::string emoji_filter = emoji.empty() ? "1 = 1" : "r.reaction = $2";
-      needs_emoji_param = !emoji.empty();
-      sql = std::format(
-          "select date_trunc('{}', m.created_at) as bucket_start, count(*) as value "
-          "from reaction r "
-          "join message m on m.message_id = r.message_id "
-          "join channel c on c.channel_id = m.channel_id "
-          "{}"
-          "where ({}) and ({}) and ({}) "
-          "group by bucket_start "
-          "order by bucket_start asc "
-          "limit {}",
-          interval, scope_join, scope_filter, time_filter, emoji_filter, limit);
+          group_by, scope_join, scope_filter, time_filter, limit);
     } else {
-      const std::string emoji_filter = emoji.empty() ? "1 = 1" : "r.reaction = $2";
-      needs_emoji_param = !emoji.empty();
       sql = std::format(
           "select date_trunc('{}', m.created_at) as bucket_start, count(*) as value "
           "from reaction r "
@@ -281,19 +436,19 @@ ParseResult parse_and_compile(const std::string &request_json) {
           "group by bucket_start "
           "order by bucket_start asc "
           "limit {}",
-          interval, scope_join, scope_filter, time_filter, emoji_filter, limit);
+          group_by, scope_join, scope_filter, time_filter, emoji_filter_clause,
+          limit);
     }
   }
 
   return {CompiledQuery{.sql = sql,
-                        .needs_emoji_param = needs_emoji_param,
+                        .bind_params = bind_params,
                         .limit = limit,
                         .scope = scope,
-                        .query_type = query_type,
-                        .metric = metric,
-                        .time_range = time_range,
-                        .interval = interval},
-          emoji,
+                        .kind = kind,
+                        .target = target,
+                        .group_by = group_by,
+                        .time_range = time_range},
           ""};
 }
 

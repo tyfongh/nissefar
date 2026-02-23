@@ -2,24 +2,24 @@
 #define ANALYTICSQUERY_H
 
 #include <optional>
+#include <vector>
 #include <string>
 
 namespace analytics_query {
 
 struct CompiledQuery {
   std::string sql;
-  bool needs_emoji_param{false};
+  std::vector<std::string> bind_params;
   int limit{10};
   std::string scope;
-  std::string query_type;
-  std::string metric;
+  std::string kind;
+  std::string target;
+  std::string group_by;
   std::string time_range;
-  std::string interval;
 };
 
 struct ParseResult {
   std::optional<CompiledQuery> query;
-  std::string emoji;
   std::string error;
 
   [[nodiscard]] bool ok() const { return query.has_value(); }

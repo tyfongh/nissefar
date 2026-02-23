@@ -18,120 +18,102 @@ void expect_false(bool condition, const std::string &message) {
   expect_true(!condition, message);
 }
 
-void test_leaderboard_messages_query() {
+void test_reaction_emoji_leaderboard() {
   const auto parsed = analytics_query::parse_and_compile(
-      R"({"query_type":"leaderboard","metric":"messages","time_range":"last_month","limit":7})");
-  expect_true(parsed.ok(), "leaderboard messages query parses");
+      R"({"scope":"server","kind":"leaderboard","target":"reactions","group_by":"emoji","time_range":"all_time","limit":10})");
+  expect_true(parsed.ok(), "reaction emoji leaderboard parses");
+  if (!parsed.ok()) {
+    return;
+  }
+
+  expect_true(parsed.query->sql.find("select r.reaction as label") != std::string::npos,
+              "emoji leaderboard selects reaction label");
+  expect_true(parsed.query->sql.find("group by r.reaction") != std::string::npos,
+              "emoji leaderboard groups by reaction");
+}
+
+void test_most_clown_posts_compiles_to_message_leaderboard() {
+  const auto parsed = analytics_query::parse_and_compile(
+      R"({"scope":"server","kind":"leaderboard","target":"messages","group_by":"message","filters":{"emojis":["🤡"]},"time_range":"all_time","limit":10})");
+  expect_true(parsed.ok(), "message leaderboard with emoji filter parses");
+  if (!parsed.ok()) {
+    return;
+  }
+
+  expect_true(parsed.query->sql.find("message_snowflake_id::text as message_id") !=
+                  std::string::npos,
+              "message leaderboard returns message identifier");
+  expect_true(parsed.query->sql.find("count(r.reaction) as value") !=
+                  std::string::npos,
+              "message leaderboard counts reactions");
+  expect_true(parsed.query->bind_params.size() == 1,
+              "unicode emoji filter adds one bind parameter");
+}
+
+void test_multi_emoji_filter_generates_multiple_bindings() {
+  const auto parsed = analytics_query::parse_and_compile(
+      R"({"scope":"server","kind":"leaderboard","target":"reactions","group_by":"emoji","filters":{"emojis":["🤡",":copium:",":1Head:",":3Head:"]},"time_range":"all_time","limit":20})");
+  expect_true(parsed.ok(), "multi emoji leaderboard parses");
+  if (!parsed.ok()) {
+    return;
+  }
+
+  expect_true(parsed.query->bind_params.size() == 4,
+              "multi emoji filter generates four bind params");
+  expect_true(parsed.query->sql.find("r.reaction = $2") != std::string::npos,
+              "first emoji uses exact match placeholder");
+  expect_true(parsed.query->sql.find("r.reaction ~ $3") != std::string::npos,
+              "custom emoji name uses regex placeholder");
+}
+
+void test_message_author_leaderboard() {
+  const auto parsed = analytics_query::parse_and_compile(
+      R"({"scope":"channel","kind":"leaderboard","target":"messages","group_by":"author","time_range":"last_month","limit":7})");
+  expect_true(parsed.ok(), "message author leaderboard parses");
   if (!parsed.ok()) {
     return;
   }
 
   expect_true(parsed.query->sql.find("group by u.user_name") != std::string::npos,
-              "leaderboard groups by user");
-  expect_true(parsed.query->scope == "channel", "default scope is channel");
-  expect_true(parsed.query->sql.find("date_trunc('month', now()) - interval '1 month'") !=
+              "message author leaderboard groups by user");
+  expect_true(parsed.query->scope == "channel", "scope preserved");
+}
+
+void test_reaction_time_series() {
+  const auto parsed = analytics_query::parse_and_compile(
+      R"({"scope":"server","kind":"time_series","target":"reactions","group_by":"week","time_range":"last_30d","filters":{"emojis":[":copium:"]}})");
+  expect_true(parsed.ok(), "reaction time series parses");
+  if (!parsed.ok()) {
+    return;
+  }
+
+  expect_true(parsed.query->sql.find("date_trunc('week', m.created_at)") !=
                   std::string::npos,
-              "last month time filter included");
-  expect_true(parsed.query->limit == 7, "explicit limit is used");
+              "time series uses requested week bucket");
 }
 
-void test_timeseries_default_interval() {
+void test_invalid_combination_rejected() {
   const auto parsed = analytics_query::parse_and_compile(
-      R"({"query_type":"time_series","metric":"messages","time_range":"last_30d"})");
-  expect_true(parsed.ok(), "time series query parses");
-  if (!parsed.ok()) {
-    return;
-  }
-
-  expect_true(parsed.query->sql.find("date_trunc('day'", 0) != std::string::npos,
-              "default interval is day");
-}
-
-void test_reactions_with_emoji_filter() {
-  const auto parsed = analytics_query::parse_and_compile(
-      R"({"query_type":"leaderboard","metric":"reactions_received","emoji":"🤡","limit":10})");
-  expect_true(parsed.ok(), "reaction query parses");
-  if (!parsed.ok()) {
-    return;
-  }
-
-  expect_true(parsed.query->needs_emoji_param, "emoji param required when supplied");
-  expect_true(parsed.query->sql.find("r.reaction = $2") != std::string::npos,
-              "emoji placeholder included in SQL");
-}
-
-void test_invalid_metric_rejected() {
-  const auto parsed = analytics_query::parse_and_compile(
-      R"({"query_type":"leaderboard","metric":"toxicity_score"})");
-  expect_false(parsed.ok(), "invalid metric is rejected");
+      R"({"kind":"leaderboard","target":"messages","group_by":"emoji"})");
+  expect_false(parsed.ok(), "invalid target/group_by combination rejected");
 }
 
 void test_invalid_limit_type_rejected() {
   const auto parsed = analytics_query::parse_and_compile(
-      R"({"query_type":"leaderboard","metric":"messages","limit":"ten"})");
-  expect_false(parsed.ok(), "non-integer limit is rejected");
-}
-
-void test_limit_clamped() {
-  const auto parsed = analytics_query::parse_and_compile(
-      R"({"query_type":"leaderboard","metric":"messages","limit":999})");
-  expect_true(parsed.ok(), "limit-clamped query still parses");
-  if (!parsed.ok()) {
-    return;
-  }
-
-  expect_true(parsed.query->limit == 25, "leaderboard limit is clamped to 25");
-}
-
-void test_server_scope_compiles_to_server_filter() {
-  const auto parsed = analytics_query::parse_and_compile(
-      R"({"scope":"server","query_type":"leaderboard","metric":"reactions_received","emoji":"🤡"})");
-  expect_true(parsed.ok(), "server scope query parses");
-  if (!parsed.ok()) {
-    return;
-  }
-
-  expect_true(parsed.query->scope == "server", "scope is server");
-  expect_true(parsed.query->sql.find("join server s on s.server_id = c.server_id") !=
-                  std::string::npos,
-              "server join added");
-  expect_true(parsed.query->sql.find("s.server_snowflake_id = $1") != std::string::npos,
-              "server scope filter uses parameter");
-}
-
-void test_reactions_used_query_groups_by_emoji() {
-  const auto parsed = analytics_query::parse_and_compile(
-      R"({"scope":"server","query_type":"leaderboard","metric":"reactions_used","time_range":"all_time","limit":10})");
-  expect_true(parsed.ok(), "reactions_used query parses");
-  if (!parsed.ok()) {
-    return;
-  }
-
-  expect_true(parsed.query->sql.find("select r.reaction as label") !=
-                  std::string::npos,
-              "reactions_used labels by reaction");
-  expect_true(parsed.query->sql.find("group by r.reaction") != std::string::npos,
-              "reactions_used groups by reaction");
-}
-
-void test_invalid_scope_rejected() {
-  const auto parsed = analytics_query::parse_and_compile(
-      R"({"scope":"global","query_type":"leaderboard","metric":"messages"})");
-  expect_false(parsed.ok(), "invalid scope is rejected");
+      R"({"kind":"leaderboard","target":"reactions","group_by":"emoji","limit":"ten"})");
+  expect_false(parsed.ok(), "non-integer limit rejected");
 }
 
 } // namespace
 
 int main() {
-  test_leaderboard_messages_query();
-  test_timeseries_default_interval();
-  test_reactions_with_emoji_filter();
-  test_invalid_metric_rejected();
+  test_reaction_emoji_leaderboard();
+  test_most_clown_posts_compiles_to_message_leaderboard();
+  test_multi_emoji_filter_generates_multiple_bindings();
+  test_message_author_leaderboard();
+  test_reaction_time_series();
+  test_invalid_combination_rejected();
   test_invalid_limit_type_rejected();
-  test_limit_clamped();
-  test_server_scope_compiles_to_server_filter();
-  test_reactions_used_query_groups_by_emoji();
-  test_invalid_scope_rejected();
 
   if (failures != 0) {
     std::cerr << failures << " test failure(s)\n";

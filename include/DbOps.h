@@ -43,7 +43,7 @@ std::string run_channel_analytics_request(dpp::snowflake channel_id,
                                           const std::string &request_json);
 std::string run_compiled_channel_analytics_query(
     dpp::snowflake channel_id, dpp::snowflake server_id,
-    const analytics_query::CompiledQuery &compiled, const std::string &emoji);
+    const analytics_query::CompiledQuery &compiled);
 
 } // namespace dbops
 
