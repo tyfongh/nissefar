@@ -189,6 +189,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
   std::string last_tool_output_preview;
   std::size_t last_tool_output_size = 0;
   std::unordered_set<std::string> seen_tool_calls;
+  bool analytics_tool_used = false;
 
   try {
     bot.log(dpp::ll_info,
@@ -252,6 +253,9 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
           seen_tool_calls.insert(tool_key);
           tool_output = co_await tool_executor(tool_name, arguments_json);
           ++tool_calls_executed;
+          if (tool_name == "query_channel_analytics") {
+            analytics_tool_used = true;
+          }
         }
 
         last_tool_output_size = tool_output.size();
@@ -266,8 +270,16 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
         messages.push_back(ollama_tools::tool_result_message(tool_name, tool_output));
       }
 
-      response =
-          ollama_tools::chat(ollama_client, model, messages, opts, json_tools);
+      if (analytics_tool_used) {
+        bot.log(dpp::ll_info,
+                "Analytics tool result received; forcing final response without tools");
+        response =
+            ollama_tools::chat(ollama_client, model, messages, opts,
+                               ollama_tools::tools{});
+      } else {
+        response =
+            ollama_tools::chat(ollama_client, model, messages, opts, json_tools);
+      }
     }
 
     if (answer.empty()) {
