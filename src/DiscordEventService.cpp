@@ -23,7 +23,7 @@ namespace {
 std::string format_available_guild_emojis(const dpp::emoji_map &emoji_map,
                                           std::size_t max_entries = 120) {
   if (emoji_map.empty()) {
-    return "Available guild emojis: none\n";
+    return "Available guild emojis (custom only): none\n";
   }
 
   struct EmojiEntry {
@@ -44,7 +44,7 @@ std::string format_available_guild_emojis(const dpp::emoji_map &emoji_map,
   }
 
   if (entries.empty()) {
-    return "Available guild emojis: none (all unavailable)\n";
+    return "Available guild emojis (custom only): none (all unavailable)\n";
   }
 
   std::ranges::sort(entries, [](const EmojiEntry &a, const EmojiEntry &b) {
@@ -55,7 +55,7 @@ std::string format_available_guild_emojis(const dpp::emoji_map &emoji_map,
   out << "Available guild emojis (custom only):\n";
   const std::size_t count = std::min(max_entries, entries.size());
   for (std::size_t i = 0; i < count; ++i) {
-    out << "- :" << entries[i].name << ": => " << entries[i].mention << "\n";
+    out << "- " << entries[i].mention << " (name: " << entries[i].name << ")\n";
   }
 
   if (entries.size() > max_entries) {
@@ -63,7 +63,7 @@ std::string format_available_guild_emojis(const dpp::emoji_map &emoji_map,
                        entries.size() - max_entries);
   }
 
-  out << "Use this list for guild-specific custom emojis; unicode emojis are always allowed.\n";
+  out << "Use only the exact mention token from this list for guild custom emojis.\n";
   return out.str();
 }
 
@@ -188,7 +188,8 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
   if (answer) {
     const dpp::snowflake request_channel_id = event.msg.channel_id;
     const dpp::snowflake request_server_id = event.msg.guild_id;
-    std::string guild_emoji_context = "Available guild emojis: unavailable\n";
+    std::string guild_emoji_context =
+        "Available guild emojis (custom only): unavailable\n";
 
     if (request_server_id != 0) {
       const auto emojis_response = co_await bot.co_guild_emojis_get(request_server_id);
@@ -198,20 +199,32 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
               format_available_guild_emojis(emojis_response.get<dpp::emoji_map>());
         } catch (...) {
           guild_emoji_context =
-              "Available guild emojis: unavailable (unexpected response payload)\n";
+              "Available guild emojis (custom only): unavailable (unexpected response payload)\n";
         }
       } else {
         const auto err = emojis_response.get_error();
         if (!err.human_readable.empty()) {
           guild_emoji_context =
-              std::format("Available guild emojis: unavailable ({})\n",
+              std::format("Available guild emojis (custom only): unavailable ({})\n",
                           err.human_readable);
         } else if (!err.message.empty()) {
           guild_emoji_context =
-              std::format("Available guild emojis: unavailable ({})\n", err.message);
+              std::format("Available guild emojis (custom only): unavailable ({})\n",
+                          err.message);
         }
       }
     }
+
+    const std::string emoji_output_contract =
+        "Custom emoji output rules:\n"
+        "- For guild custom emojis, output exact mention tokens only (<:name:id> or <a:name:id>).\n"
+        "- Never output :name: for custom guild emojis.\n"
+        "- If a custom emoji is unavailable or not listed, use unicode emojis or plain text instead.\n"
+        "Examples:\n"
+        "- Bad: :tesla:\n"
+        "- Good: <:tesla:1267788459049877534>\n"
+        "- Bad: :unknown_custom:\n"
+        "- Good: ⚡\n";
 
     const std::vector<LlmService::ToolDefinition> available_tools = {
         {"get_banana_data", "Get EV trunk size dataset from Banana sheet", ""},
@@ -392,6 +405,7 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         std::format("Current time: {:%Y-%m-%d %H:%M}\n",
                     std::chrono::zoned_time{std::chrono::current_zone(),
                                             std::chrono::system_clock::now()}) +
+        emoji_output_contract +
         guild_emoji_context +
         format_message_history(event.msg.channel_id) +
         format_replyto_message(last_message);
