@@ -86,7 +86,7 @@ RESPONSE=$(curl -sS "$OLLAMA_URL" \
     -H "Content-Type: application/json" \
     --fail-with-body \
     --connect-timeout 15 \
-    --max-time 90 \
+    --max-time 360 \
     -d "$(jq -n \
         --arg model "$OLLAMA_MODEL" \
         --arg content "$TRANSCRIPT" \
