@@ -9,12 +9,65 @@
 #include <YoutubeService.h>
 
 #include <chrono>
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <random>
 #include <ranges>
+#include <sstream>
 #include <thread>
 #include <variant>
+
+namespace {
+
+std::string format_available_guild_emojis(const dpp::emoji_map &emoji_map,
+                                          std::size_t max_entries = 120) {
+  if (emoji_map.empty()) {
+    return "Available guild emojis: none\n";
+  }
+
+  struct EmojiEntry {
+    std::string name;
+    std::string mention;
+  };
+
+  std::vector<EmojiEntry> entries;
+  entries.reserve(emoji_map.size());
+
+  for (const auto &[id, emoji] : emoji_map) {
+    (void)id;
+    if (!emoji.is_available()) {
+      continue;
+    }
+
+    entries.push_back({emoji.name, emoji.get_mention()});
+  }
+
+  if (entries.empty()) {
+    return "Available guild emojis: none (all unavailable)\n";
+  }
+
+  std::ranges::sort(entries, [](const EmojiEntry &a, const EmojiEntry &b) {
+    return a.name < b.name;
+  });
+
+  std::ostringstream out;
+  out << "Available guild emojis (custom only):\n";
+  const std::size_t count = std::min(max_entries, entries.size());
+  for (std::size_t i = 0; i < count; ++i) {
+    out << "- :" << entries[i].name << ": => " << entries[i].mention << "\n";
+  }
+
+  if (entries.size() > max_entries) {
+    out << std::format("- ... {} more guild emojis not shown.\n",
+                       entries.size() - max_entries);
+  }
+
+  out << "Use this list for guild-specific custom emojis; unicode emojis are always allowed.\n";
+  return out.str();
+}
+
+} // namespace
 
 DiscordEventService::DiscordEventService(
     const Config &config, dpp::cluster &bot, const LlmService &llm_service,
@@ -135,6 +188,30 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
   if (answer) {
     const dpp::snowflake request_channel_id = event.msg.channel_id;
     const dpp::snowflake request_server_id = event.msg.guild_id;
+    std::string guild_emoji_context = "Available guild emojis: unavailable\n";
+
+    if (request_server_id != 0) {
+      const auto emojis_response = co_await bot.co_guild_emojis_get(request_server_id);
+      if (!emojis_response.is_error()) {
+        try {
+          guild_emoji_context =
+              format_available_guild_emojis(emojis_response.get<dpp::emoji_map>());
+        } catch (...) {
+          guild_emoji_context =
+              "Available guild emojis: unavailable (unexpected response payload)\n";
+        }
+      } else {
+        const auto err = emojis_response.get_error();
+        if (!err.human_readable.empty()) {
+          guild_emoji_context =
+              std::format("Available guild emojis: unavailable ({})\n",
+                          err.human_readable);
+        } else if (!err.message.empty()) {
+          guild_emoji_context =
+              std::format("Available guild emojis: unavailable ({})\n", err.message);
+        }
+      }
+    }
 
     const std::vector<LlmService::ToolDefinition> available_tools = {
         {"get_banana_data", "Get EV trunk size dataset from Banana sheet", ""},
@@ -315,6 +392,7 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         std::format("Current time: {:%Y-%m-%d %H:%M}\n",
                     std::chrono::zoned_time{std::chrono::current_zone(),
                                             std::chrono::system_clock::now()}) +
+        guild_emoji_context +
         format_message_history(event.msg.channel_id) +
         format_replyto_message(last_message);
 
