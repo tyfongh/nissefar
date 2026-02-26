@@ -119,7 +119,8 @@ std::string LlmService::generate_text(const std::string &prompt,
     if (use_generate_endpoint) {
       ollama::request request(model, prompt, opts, false, imagelist);
       request["system"] = system_prompt;
-      answer = ollama_client.generate(request);
+      const ollama::response response = ollama_client.generate(request);
+      answer = response_to_text(response);
     } else {
       ollama::request request(model, messages, opts, false);
       const ollama::response response = ollama_client.chat(request);
