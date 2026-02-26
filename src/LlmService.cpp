@@ -121,7 +121,9 @@ std::string LlmService::generate_text(const std::string &prompt,
       request["system"] = system_prompt;
       answer = ollama_client.generate(request);
     } else {
-      answer = ollama_client.chat(model, messages, opts);
+      ollama::request request(model, messages, opts, false);
+      const ollama::response response = ollama_client.chat(request);
+      answer = response_to_text(response);
     }
   } catch (ollama::exception e) {
     answer = std::format("Exception running llm: {}", e.what());
