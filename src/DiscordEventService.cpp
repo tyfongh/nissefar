@@ -166,7 +166,7 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
                       event.msg.author.format_username(), event.msg.content));
 
   for (auto mention : event.msg.mentions) {
-    if (mention.second.user_id == bot.me.id && event.msg.author.id != bot.me.id)
+    if (mention.second.user_id == bot.me.id && event.msg.author.id != bot.me.id && current_chan->name == "botspam")
       answer = true;
   }
 
