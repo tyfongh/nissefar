@@ -41,6 +41,44 @@ std::string response_shape(const ollama::response &response) {
   return std::format("message.content type={}", message["content"].type_name());
 }
 
+std::string truncate_for_log(std::string value, std::size_t max_size) {
+  if (value.size() <= max_size) {
+    return value;
+  }
+
+  value.resize(max_size);
+  value += "...";
+  return value;
+}
+
+std::string tool_call_names_for_log(const ollama::response &response) {
+  if (!ollama_tools::has_tool_calls(response)) {
+    return "[]";
+  }
+
+  std::string names = "[";
+  bool first = true;
+
+  for (const auto &tool_call : ollama_tools::tool_calls(response)) {
+    std::string tool_name = "unknown_tool";
+    if (tool_call.contains("function") && tool_call["function"].is_object()) {
+      const auto &fn = tool_call["function"];
+      if (fn.contains("name") && fn["name"].is_string()) {
+        tool_name = fn["name"].get<std::string>();
+      }
+    }
+
+    if (!first) {
+      names += ", ";
+    }
+    first = false;
+    names += tool_name;
+  }
+
+  names += "]";
+  return names;
+}
+
 } // namespace
 
 LlmService::LlmService(const Config &config, dpp::cluster &bot)
@@ -193,6 +231,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
   std::size_t last_tool_output_size = 0;
   std::unordered_set<std::string> seen_tool_calls;
   bool analytics_tool_used = false;
+  bool saw_empty_content_without_tool_calls = false;
 
   try {
     bot.log(dpp::ll_info,
@@ -202,12 +241,51 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
         ollama_tools::chat(ollama_client, model, messages, opts, json_tools);
 
     for (int iteration = 0; iteration < 4; ++iteration) {
-      if (!ollama_tools::has_tool_calls(response)) {
+      const auto payload = response.as_json();
+      const bool has_tool_calls = ollama_tools::has_tool_calls(response);
+      std::size_t tool_call_count = 0;
+      if (has_tool_calls) {
+        tool_call_count = ollama_tools::tool_calls(response).size();
+      }
+
+      std::size_t content_length = 0;
+      if (payload.contains("message") && payload["message"].is_object() &&
+          payload["message"].contains("content")) {
+        const auto &content = payload["message"]["content"];
+        if (content.is_string()) {
+          content_length = content.get<std::string>().size();
+        } else if (!content.is_null()) {
+          content_length = content.dump().size();
+        }
+      }
+
+      std::string done = "n/a";
+      if (payload.contains("done")) {
+        done = payload["done"].dump();
+      }
+
+      std::string done_reason = "n/a";
+      if (payload.contains("done_reason")) {
+        done_reason = payload["done_reason"].dump();
+      }
+
+      bot.log(dpp::ll_info,
+              std::format("Tool loop iteration={} has_tool_calls={} tool_calls_count={} "
+                          "content_length={} done={} done_reason={} tool_names={}",
+                          iteration + 1, has_tool_calls, tool_call_count,
+                          content_length, done, done_reason,
+                          tool_call_names_for_log(response)));
+
+      if (!has_tool_calls) {
         answer = response_to_text(response);
         if (answer.empty()) {
+          saw_empty_content_without_tool_calls = true;
+          const std::string payload_preview =
+              truncate_for_log(payload.dump(), 600);
           bot.log(dpp::ll_warning,
-                  std::format("Tool chat returned empty assistant content ({})",
-                              response_shape(response)));
+                  std::format("Tool chat returned empty assistant content ({}) "
+                              "payload={}",
+                              response_shape(response), payload_preview));
         }
         break;
       }
@@ -292,7 +370,11 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
 
     if (answer.empty()) {
       tool_calling_failed = true;
-      failure_reason = "Tool-calling did not finish within 4 iterations.";
+      if (saw_empty_content_without_tool_calls) {
+        failure_reason = "Empty assistant content with no tool_calls.";
+      } else {
+        failure_reason = "Tool-calling did not finish within 4 iterations.";
+      }
     }
   } catch (ollama::exception e) {
     tool_calling_failed = true;
