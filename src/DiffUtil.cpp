@@ -12,8 +12,11 @@
 #include <string>
 #include <vector>
 
-std::string diff_csv(const std::string &olddata, const std::string &newdata,
-                     int sheet_id, bool transpose) {
+std::string transpose_csv(const std::string &raw) {
+  if (raw.empty()) {
+    return "";
+  }
+
   auto split_csv_line = [](const std::string &line) -> std::vector<std::string> {
     std::vector<std::string> cells;
     std::string cell;
@@ -42,52 +45,49 @@ std::string diff_csv(const std::string &olddata, const std::string &newdata,
     return line;
   };
 
-  auto transpose_csv = [&](const std::string &raw) -> std::string {
-    if (raw.empty()) {
-      return "";
+  std::stringstream ss(raw);
+  std::string line;
+  std::vector<std::vector<std::string>> rows;
+
+  while (std::getline(ss, line)) {
+    if (!line.empty()) {
+      rows.push_back(split_csv_line(line));
     }
+  }
 
-    std::stringstream ss(raw);
-    std::string line;
-    std::vector<std::vector<std::string>> rows;
+  if (rows.empty()) {
+    return "";
+  }
 
-    while (std::getline(ss, line)) {
-      if (!line.empty()) {
-        rows.push_back(split_csv_line(line));
-      }
+  size_t max_columns = 0;
+  for (const auto &row : rows) {
+    max_columns = std::max(max_columns, row.size());
+  }
+
+  for (auto &row : rows) {
+    row.resize(max_columns);
+  }
+
+  std::vector<std::vector<std::string>> transposed(
+      max_columns, std::vector<std::string>(rows.size()));
+
+  for (size_t row_idx = 0; row_idx < rows.size(); ++row_idx) {
+    for (size_t col_idx = 0; col_idx < max_columns; ++col_idx) {
+      transposed[col_idx][row_idx] = rows[row_idx][col_idx];
     }
+  }
 
-    if (rows.empty()) {
-      return "";
-    }
+  std::string result;
+  for (const auto &row : transposed) {
+    result += join_csv_line(row);
+    result += "\n";
+  }
 
-    size_t max_columns = 0;
-    for (const auto &row : rows) {
-      max_columns = std::max(max_columns, row.size());
-    }
+  return result;
+}
 
-    for (auto &row : rows) {
-      row.resize(max_columns);
-    }
-
-    std::vector<std::vector<std::string>> transposed(
-        max_columns, std::vector<std::string>(rows.size()));
-
-    for (size_t row_idx = 0; row_idx < rows.size(); ++row_idx) {
-      for (size_t col_idx = 0; col_idx < max_columns; ++col_idx) {
-        transposed[col_idx][row_idx] = rows[row_idx][col_idx];
-      }
-    }
-
-    std::string result;
-    for (const auto &row : transposed) {
-      result += join_csv_line(row);
-      result += "\n";
-    }
-
-    return result;
-  };
-
+std::string diff_csv(const std::string &olddata, const std::string &newdata,
+                     int sheet_id, bool transpose) {
   auto sort_csv = [](const std::string &raw) -> std::string {
     if (raw.empty())
       return "";

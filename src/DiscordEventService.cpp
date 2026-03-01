@@ -235,6 +235,8 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         {"get_range_data",
          "Get EV 90 and 120 km/h range and efficiency data from Range sheet", ""},
         {"get_1000km_data", "Get EV 1000 km challenge dataset", ""},
+        {"get_charging_curve_data",
+         "Get EV charging power by SoC from Charging curve sheet as transposed CSV", ""},
         {"get_youtube_stream_status",
          "Check whether the tracked YouTube stream is currently live. If live, returns the current stream title.",
          ""},
@@ -268,7 +270,8 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
           {"get_acceleration_data", "Acceleration"},
           {"get_noise_data", "Noise"},
           {"get_range_data", "Range"},
-          {"get_1000km_data", "1000 km"}};
+          {"get_1000km_data", "1000 km"},
+          {"get_charging_curve_data", "Charging curve"}};
 
       if (tool_name == "get_webpage_text") {
         if (*webpage_tool_calls >= 1) {
@@ -391,12 +394,16 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         co_return std::format("Tool error: unknown tool '{}'", tool_name);
       }
 
-      auto csv_data = google_docs_service.get_sheet_csv_by_tab_name(it->second);
+      const bool transpose = tool_name == "get_charging_curve_data";
+      auto csv_data =
+          google_docs_service.get_sheet_csv_by_tab_name(it->second, transpose);
       if (!csv_data.has_value()) {
         co_return std::format("Tool error: dataset '{}' is not loaded", it->second);
       }
 
-      co_return std::format("Dataset: {}\nCSV data:\n{}", it->second, *csv_data);
+      const std::string data_label = transpose ? "Transposed CSV data" : "CSV data";
+      co_return std::format("Dataset: {}\n{}:\n{}", it->second, data_label,
+                            *csv_data);
     };
 
     std::string prompt =

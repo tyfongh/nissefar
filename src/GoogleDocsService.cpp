@@ -58,7 +58,8 @@ std::string GoogleDocsService::format_sheet_context() const {
 }
 
 std::optional<std::string>
-GoogleDocsService::get_sheet_csv_by_tab_name(const std::string &sheet_name) const {
+GoogleDocsService::get_sheet_csv_by_tab_name(const std::string &sheet_name,
+                                             bool transpose) const {
   for (const auto &[filename, tab_metadata] : sheet_metadata) {
     auto data_by_tab = sheet_data.find(filename);
     if (data_by_tab == sheet_data.end()) {
@@ -72,6 +73,9 @@ GoogleDocsService::get_sheet_csv_by_tab_name(const std::string &sheet_name) cons
 
       auto csv_data = data_by_tab->second.find(sheet_id);
       if (csv_data != data_by_tab->second.end() && !csv_data->second.empty()) {
+        if (transpose) {
+          return transpose_csv(csv_data->second);
+        }
         return csv_data->second;
       }
     }

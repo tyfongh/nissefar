@@ -3,6 +3,8 @@
 
 #include <string>
 
+std::string transpose_csv(const std::string &raw);
+
 std::string diff_csv(const std::string &olddata, const std::string &newdata,
                      int sheet_id, bool transpose = false);
 
