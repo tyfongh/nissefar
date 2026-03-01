@@ -11,7 +11,7 @@ Config::Config()
                         std::string(""), std::string(""), std::string(""),
                         std::string(""), std::string(""), std::string(""),
                         std::string(""), std::string(""), std::string(""),
-                        std::string(""), 0);
+                        std::string(""), 0, 40000);
 
         ini::IniFile ini;
         ini.setMultiLineValues(true);
@@ -57,6 +57,15 @@ Config::Config()
         }
 
         int max_history = ini["General"]["max_history"].as<int>();
+        int context_size = 40000;
+
+        try {
+          int configured_context_size = ini["General"]["context_size"].as<int>();
+          if (configured_context_size > 0) {
+            context_size = configured_context_size;
+          }
+        } catch (...) {
+        }
 
         if (discord_token.empty() || google_api_key.empty() ||
             system_prompt.empty() || diff_system_prompt.empty() ||
@@ -66,11 +75,11 @@ Config::Config()
           valid = false;
 
         return Config(valid, discord_token, google_api_key, system_prompt,
-                       diff_system_prompt, image_description_system_prompt,
-                       text_model, comparison_model, vision_model,
-                       image_description_model, ollama_server_url,
-                       db_connection_string, video_summary_script_path,
-                       max_history);
+                        diff_system_prompt, image_description_system_prompt,
+                        text_model, comparison_model, vision_model,
+                        image_description_model, ollama_server_url,
+                        db_connection_string, video_summary_script_path,
+                        max_history, context_size);
       }()) {}
 
 Config::Config(bool valid, std::string discord_token,
@@ -81,10 +90,12 @@ Config::Config(bool valid, std::string discord_token,
                std::string vision_model, std::string image_description_model,
                std::string ollama_server_url,
                std::string db_connection_string,
-               std::string video_summary_script_path, int max_history)
+               std::string video_summary_script_path, int max_history,
+               int context_size)
     : discord_token(std::move(discord_token)),
       google_api_key(std::move(google_api_key)),
       max_history(max_history),
+      context_size(context_size),
       system_prompt(std::move(system_prompt)),
       diff_system_prompt(std::move(diff_system_prompt)),
       image_description_system_prompt(

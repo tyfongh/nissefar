@@ -76,7 +76,7 @@ std::string LlmService::generate_text(const std::string &prompt,
   ollama::messages messages;
 
   opts["num_predict"] = 1000;
-  opts["num_ctx"] = 40000;
+  opts["num_ctx"] = config.context_size;
 
   using enum GenerationType;
   switch (gen_type) {
@@ -154,7 +154,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
 
   ollama::options opts;
   opts["num_predict"] = 1000;
-  opts["num_ctx"] = 40000;
+  opts["num_ctx"] = config.context_size;
 
   ollama_tools::tools json_tools;
   for (const auto &tool : available_tools) {

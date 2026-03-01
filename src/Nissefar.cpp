@@ -23,6 +23,8 @@ Nissefar::Nissefar() {
 
   bot->log(dpp::ll_info,
            std::format("Ollama server url: {}", config.ollama_server_url));
+  bot->log(dpp::ll_info,
+           std::format("LLM context size: {}", config.context_size));
 
   llm_service = std::make_unique<LlmService>(config, *bot);
   google_docs_service =
