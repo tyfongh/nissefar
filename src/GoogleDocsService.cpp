@@ -104,6 +104,16 @@ dpp::task<void> GoogleDocsService::process_sheets(const std::string filename,
     int sheet_id = sheet["properties"]["sheetId"].get<int>();
     std::string sheet_name = sheet["properties"]["title"].get<std::string>();
 
+    if (filename == "Charging curves") {
+      if (sheet_name == "Graph") {
+        continue;
+      }
+
+      if (sheet_name != "Charging curve") {
+        continue;
+      }
+    }
+
     std::string sheet_url =
         std::format("https://docs.google.com/spreadsheets/d/{}/"
                     "export?format=csv&gid={}",
@@ -140,9 +150,12 @@ dpp::task<void> GoogleDocsService::process_sheets(const std::string filename,
             bot.log(dpp::ll_info,
                     std::format("The sheet \"{}\" has changed", sheet_name));
 
+            const bool transpose_for_diff =
+                filename == "Charging curves" && sheet_name == "Charging curve";
+
             sheet_diffs[filename][sheet_id] =
                 Diffdata{diff_csv(sheet_data[filename][sheet_id], newdata,
-                                  sheet_id),
+                                  sheet_id, transpose_for_diff),
                          weblink, header, sheet_name};
             sheet_data[filename][sheet_id] = newdata;
           }
@@ -214,15 +227,8 @@ dpp::task<void> GoogleDocsService::process_google_docs() {
               dpp::ll_info,
               std::format("File {} has changed.\nOld time: {}, New time: {}",
                           filename, otime, ntime));
-          if (filename == "TB test results") {
-            co_await process_sheets(filename, file_id, weblink);
-            process_diffs();
-          } else {
-            dpp::message msg(1267731118895927347,
-                             std::format("Charging curves has changed\n{}",
-                                         weblink));
-            bot.message_create(msg);
-          }
+          co_await process_sheets(filename, file_id, weblink);
+          process_diffs();
         }
       }
     }

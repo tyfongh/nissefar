@@ -144,3 +144,19 @@ set_target_properties(html_text_extract_tests PROPERTIES
 )
 
 add_test(NAME html_text_extract_tests COMMAND html_text_extract_tests)
+
+add_executable(diff_util_tests
+  tests/DiffUtilTests.cpp
+  src/DiffUtil.cpp
+)
+
+target_include_directories(diff_util_tests PRIVATE
+  include/
+)
+
+set_target_properties(diff_util_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME diff_util_tests COMMAND diff_util_tests)
