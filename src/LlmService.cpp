@@ -113,12 +113,12 @@ std::string LlmService::generate_text(const std::string &prompt,
   std::string system_prompt;
   ollama::messages messages;
 
-  opts["num_predict"] = 1000;
   opts["num_ctx"] = config.context_size;
 
   using enum GenerationType;
   switch (gen_type) {
   case TextReply:
+    opts["num_predict"] = 1000;
     system_prompt = config.system_prompt;
     if (imagelist.size() > 0) {
       model = config.vision_model;
@@ -136,6 +136,7 @@ std::string LlmService::generate_text(const std::string &prompt,
     messages.emplace_back("user", prompt);
     break;
   case ImageDescription:
+    opts["num_predict"] = 1000;
     system_prompt = config.image_description_system_prompt;
     model = config.image_description_model;
     {
