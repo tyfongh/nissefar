@@ -158,6 +158,14 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
   dpp::guild *current_server = dpp::find_guild(event.msg.guild_id);
   dpp::channel *current_chan = dpp::find_channel(event.msg.channel_id);
 
+  if (!current_server || !current_chan) {
+    bot.log(dpp::ll_warning,
+            std::format("handle_message: cache miss for guild={} channel={} msg={}",
+                        event.msg.guild_id.str(), event.msg.channel_id.str(),
+                        event.msg.id.str()));
+    co_return;
+  }
+
   if (current_server->name == "tyfon's server")
     co_return;
 
