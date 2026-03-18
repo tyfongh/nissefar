@@ -157,11 +157,19 @@ dpp::task<void> GoogleDocsService::process_sheets(const std::string filename,
             const bool transpose_for_diff =
                 filename == "Charging curves" && sheet_name == "Charging curve";
 
-            sheet_diffs[filename][sheet_id] =
-                Diffdata{diff_csv(sheet_data[filename][sheet_id], newdata,
-                                  sheet_id, transpose_for_diff),
-                         weblink, header, sheet_name};
+            const std::string old_data = sheet_data[filename][sheet_id];
             sheet_data[filename][sheet_id] = newdata;
+
+            auto diff_result = co_await dpp::async<std::string>(
+                [&](std::function<void(std::string)> cb) {
+                  bot.queue_work(10, [cb = std::move(cb), old_data, newdata,
+                                      sheet_id, transpose_for_diff]() mutable {
+                    cb(diff_csv(old_data, newdata, sheet_id, transpose_for_diff));
+                  });
+                });
+
+            sheet_diffs[filename][sheet_id] =
+                Diffdata{std::move(diff_result), weblink, header, sheet_name};
           }
         }
         is_done = true;
@@ -175,20 +183,27 @@ dpp::task<void> GoogleDocsService::process_sheets(const std::string filename,
   co_return;
 }
 
-void GoogleDocsService::process_diffs() {
+dpp::task<void> GoogleDocsService::process_diffs() {
   for (auto &[filename, diffmap] : sheet_diffs) {
     for (auto &[sheet_id, diffdata] : diffmap) {
       auto prompt = std::format(
           "Filename: {}\nSheet name: {}\nCSV Header: {}\nDiff:\n{}", filename,
           diffdata.sheet_name, diffdata.header, diffdata.diffdata);
-      auto answer = llm_service.generate_text(
-          prompt, ollama::images{}, LlmService::GenerationType::Diff);
+      auto answer = co_await dpp::async<std::string>(
+          [&](std::function<void(std::string)> cb) {
+            bot.queue_work(10, [cb = std::move(cb), prompt,
+                                &llm = llm_service]() mutable {
+              cb(llm.generate_text(prompt, ollama::images{},
+                                   LlmService::GenerationType::Diff));
+            });
+          });
       answer += std::format("\n{}", diffdata.weblink);
       dpp::message msg(1267731118895927347, answer);
       bot.message_create(msg);
     }
   }
   sheet_diffs.clear();
+  co_return;
 }
 
 dpp::task<void> GoogleDocsService::process_google_docs() {
@@ -232,7 +247,7 @@ dpp::task<void> GoogleDocsService::process_google_docs() {
               std::format("File {} has changed.\nOld time: {}, New time: {}",
                           filename, otime, ntime));
           co_await process_sheets(filename, file_id, weblink);
-          process_diffs();
+          co_await process_diffs();
         }
       }
     }

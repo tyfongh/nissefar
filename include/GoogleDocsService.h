@@ -24,7 +24,7 @@ private:
   dpp::task<void> process_sheets(const std::string filename,
                                  const std::string file_id,
                                  std::string weblink);
-  void process_diffs();
+  dpp::task<void> process_diffs();
 
   const Config &config;
   dpp::cluster &bot;
