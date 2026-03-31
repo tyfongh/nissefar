@@ -537,7 +537,7 @@ DiscordEventService::handle_carlbot_video(const dpp::message_create_t &event) {
   auto summary = co_await llm_service.generate_text_with_tools(
       prompt, ollama::images{}, summary_tools, execute_summary_tool);
 
-  event.reply(summary);
+  event.reply(std::format("Summarization of the video:\n||{}||", summary));
 }
 
 dpp::task<void> DiscordEventService::handle_message_update(
