@@ -1,7 +1,6 @@
 #ifndef BOT_CONFIG_H
 #define BOT_CONFIG_H
 
-#include <cstdint>
 #include <string>
 
 class Config {
@@ -26,8 +25,8 @@ public:
   std::string video_summary_script_path;
   std::string directory_url;
   std::string youtube_url;
-  uint64_t youtube_summary_bot_id = 0;
-  uint64_t youtube_summary_channel_id = 0;
+  std::string youtube_summary_bot_id;
+  std::string youtube_summary_channel_id;
 
   bool is_valid = false;
   bool is_streaming = false;
@@ -40,8 +39,8 @@ public:
           std::string image_description_model, std::string ollama_server_url,
           std::string db_connection_string,
           std::string video_summary_script_path, int max_history,
-          int context_size, uint64_t youtube_summary_bot_id = 0,
-          uint64_t youtube_summary_channel_id = 0);
+          int context_size, std::string youtube_summary_bot_id = {},
+          std::string youtube_summary_channel_id = {});
 };
 
 #endif // BOT_CONFIG_H

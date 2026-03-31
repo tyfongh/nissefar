@@ -461,11 +461,11 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
 
 dpp::task<void>
 DiscordEventService::handle_carlbot_video(const dpp::message_create_t &event) {
-  if (config.youtube_summary_bot_id == 0 || config.youtube_summary_channel_id == 0)
+  if (config.youtube_summary_bot_id.empty() || config.youtube_summary_channel_id.empty())
     co_return;
 
-  if (event.msg.author.id != dpp::snowflake{config.youtube_summary_bot_id} ||
-      event.msg.channel_id != dpp::snowflake{config.youtube_summary_channel_id})
+  if (event.msg.author.id.str() != config.youtube_summary_bot_id ||
+      event.msg.channel_id.str() != config.youtube_summary_channel_id)
     co_return;
 
   static const std::regex youtube_url_re(
