@@ -1,6 +1,7 @@
 #include <Config.h>
 #include <cstdlib>
 #include <format>
+#include <iostream>
 #include <inicpp.h>
 
 Config::Config()
@@ -80,6 +81,17 @@ Config::Config()
               ini["General"]["youtube_summary_channel_id"].as<std::string>();
         } catch (...) {
         }
+
+        std::cerr << "[config debug] discord_token empty=" << discord_token.empty()
+                  << " google_api_key empty=" << google_api_key.empty()
+                  << " system_prompt empty=" << system_prompt.empty()
+                  << " diff_system_prompt empty=" << diff_system_prompt.empty()
+                  << " text_model empty=" << text_model.empty()
+                  << " comparison_model empty=" << comparison_model.empty()
+                  << " vision_model empty=" << vision_model.empty()
+                  << " image_description_model empty=" << image_description_model.empty()
+                  << " db_connection_string empty=" << db_connection_string.empty()
+                  << " max_history=" << max_history << "\n";
 
         if (discord_token.empty() || google_api_key.empty() ||
             system_prompt.empty() || diff_system_prompt.empty() ||
