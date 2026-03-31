@@ -4,6 +4,31 @@ YoutubeService::YoutubeService(Config &config, dpp::cluster &bot,
                                const LlmService &llm_service)
     : config(config), bot(bot), llm_service(llm_service) {}
 
+dpp::task<bool> YoutubeService::is_live_broadcast(const std::string &video_id) const {
+  const std::string url = std::format(
+      "https://www.googleapis.com/youtube/v3/videos?part=snippet&id={}&key={}",
+      video_id, config.google_api_key);
+
+  auto res = co_await bot.co_request(url, dpp::m_get);
+
+  try {
+    auto data = nlohmann::json::parse(res.body);
+    if (data.contains("items") && data["items"].is_array() &&
+        !data["items"].empty()) {
+      const auto &snippet = data["items"][0]["snippet"];
+      if (snippet.contains("liveBroadcastContent") &&
+          snippet["liveBroadcastContent"].is_string()) {
+        const std::string lbc =
+            snippet["liveBroadcastContent"].get<std::string>();
+        co_return lbc == "live" || lbc == "upcoming";
+      }
+    }
+  } catch (...) {
+  }
+
+  co_return false;
+}
+
 YoutubeService::StreamStatus YoutubeService::get_stream_status() const {
   std::lock_guard<std::mutex> lock(stream_status_mutex);
   return StreamStatus{stream_is_live, stream_title};

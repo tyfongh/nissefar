@@ -35,6 +35,7 @@ private:
   std::string format_replyto_message(const Message &msg) const;
   void store_message(const Message &message, dpp::guild *server,
                      dpp::channel *channel, const std::string &user_name) const;
+  dpp::task<void> handle_carlbot_video(const dpp::message_create_t &event);
 
   const Config &config;
   dpp::cluster &bot;

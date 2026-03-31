@@ -12,8 +12,10 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <optional>
 #include <random>
 #include <ranges>
+#include <regex>
 #include <sstream>
 #include <thread>
 #include <variant>
@@ -65,6 +67,20 @@ std::string format_available_guild_emojis(const dpp::emoji_map &emoji_map,
 
   out << "Use only the exact mention token from this list for guild custom emojis.\n";
   return out.str();
+}
+
+static std::optional<std::string> extract_youtube_video_id(const std::string &url) {
+  static const std::regex watch_re(R"([?&]v=([a-zA-Z0-9_-]{11}))",
+                                   std::regex::optimize);
+  static const std::regex path_re(
+      R"((?:shorts|live|youtu\.be)/([a-zA-Z0-9_-]{11}))",
+      std::regex::optimize);
+  std::smatch m;
+  if (std::regex_search(url, m, watch_re))
+    return m[1].str();
+  if (std::regex_search(url, m, path_re))
+    return m[1].str();
+  return std::nullopt;
 }
 
 } // namespace
@@ -435,10 +451,92 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
     event.reply(tool_answer, true);
   }
 
+  co_await handle_carlbot_video(event);
+
   store_message(last_message, current_server, current_chan,
                 event.msg.author.format_username());
 
   co_return;
+}
+
+dpp::task<void>
+DiscordEventService::handle_carlbot_video(const dpp::message_create_t &event) {
+  if (config.youtube_summary_bot_id == 0 || config.youtube_summary_channel_id == 0)
+    co_return;
+
+  if (event.msg.author.id != dpp::snowflake{config.youtube_summary_bot_id} ||
+      event.msg.channel_id != dpp::snowflake{config.youtube_summary_channel_id})
+    co_return;
+
+  static const std::regex youtube_url_re(
+      R"((https?://(?:(?:www\.)?youtube\.com/(?:watch\?[^\s]*|shorts/[^\s]*|live/[^\s]*)|youtu\.be/[^\s]*)))",
+      std::regex::optimize);
+
+  std::smatch m;
+  if (!std::regex_search(event.msg.content, m, youtube_url_re))
+    co_return;
+
+  const std::string video_url = m[1].str();
+
+  const auto video_id = extract_youtube_video_id(video_url);
+  if (!video_id) {
+    bot.log(dpp::ll_warning,
+            std::format("Could not extract video ID from URL: {}", video_url));
+    co_return;
+  }
+
+  if (co_await youtube_service.is_live_broadcast(*video_id)) {
+    bot.log(dpp::ll_info, std::format("Skipping live broadcast: {}", video_url));
+    co_return;
+  }
+
+  bot.log(dpp::ll_info,
+          std::format("Carl-bot posted YouTube video in bjørn: {}", video_url));
+
+  const std::vector<LlmService::ToolDefinition> summary_tools = {
+      {"summarize_video",
+       "Summarize a public online video URL by transcribing audio and producing a concise summary.",
+       R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https video URL to summarize"}},"required":["url"]})"}};
+
+  const auto video_tool_calls = std::make_shared<int>(0);
+
+  const auto execute_summary_tool =
+      [this, video_tool_calls](const std::string &tool_name,
+                               const std::string &arguments_json)
+      -> dpp::task<std::string> {
+    if (tool_name != "summarize_video")
+      co_return std::format("Tool error: unknown tool '{}'", tool_name);
+
+    if (*video_tool_calls >= 1)
+      co_return "Tool error: only one video summary is allowed per request.";
+
+    std::string requested_url;
+    try {
+      ollama::json args = ollama::json::parse(arguments_json);
+      if (args.contains("url") && args["url"].is_string())
+        requested_url = args["url"].get<std::string>();
+    } catch (...) {
+      co_return "Tool error: invalid tool arguments JSON.";
+    }
+
+    if (requested_url.empty())
+      co_return "Tool error: missing required argument 'url'.";
+
+    std::unique_lock<std::mutex> lock(heavy_tool_mutex, std::try_to_lock);
+    if (!lock.owns_lock())
+      co_return "Tool error: another webpage/video summary task is already running.";
+
+    *video_tool_calls += 1;
+    co_return co_await video_summary_service.summarize_video(requested_url);
+  };
+
+  const std::string prompt =
+      std::format("A YouTube video was posted. Summarize it: {}", video_url);
+
+  auto summary = co_await llm_service.generate_text_with_tools(
+      prompt, ollama::images{}, summary_tools, execute_summary_tool);
+
+  event.reply(summary);
 }
 
 dpp::task<void> DiscordEventService::handle_message_update(
