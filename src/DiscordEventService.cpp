@@ -1,3 +1,4 @@
+#include <AdminUtils.h>
 #include <DbOps.h>
 #include <DiscordEventService.h>
 #include <AnalyticsQuery.h>
@@ -567,6 +568,19 @@ DiscordEventService::handle_slashcommand(const dpp::slashcommand_t &event) {
           event.edit_original_response(
               dpp::message(answer).set_flags(dpp::m_ephemeral));
         });
+  } else if (event.command.get_command_name() == "announce") {
+    if (!is_admin(event.command, config)) {
+      event.reply(
+          dpp::message("You don't have permission to use this command.")
+              .set_flags(dpp::m_ephemeral));
+      co_return;
+    }
+    dpp::snowflake channel_id =
+        std::get<dpp::snowflake>(event.get_parameter("channel"));
+    std::string message =
+        std::get<std::string>(event.get_parameter("message"));
+    bot.message_create(dpp::message(channel_id, message));
+    event.reply(dpp::message("Announcement sent.").set_flags(dpp::m_ephemeral));
   } else if (event.command.get_command_name() == "chanstats") {
     event.thinking(false, [event,
                            this](const dpp::confirmation_callback_t &callback) {

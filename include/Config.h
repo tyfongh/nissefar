@@ -27,6 +27,7 @@ public:
   std::string youtube_url;
   std::string youtube_summary_bot_id;
   std::string youtube_summary_channel_id;
+  std::string owner_id;
 
   bool is_valid = false;
   bool is_streaming = false;
@@ -40,7 +41,8 @@ public:
           std::string db_connection_string,
           std::string video_summary_script_path, int max_history,
           int context_size, std::string youtube_summary_bot_id = {},
-          std::string youtube_summary_channel_id = {});
+          std::string youtube_summary_channel_id = {},
+          std::string owner_id = {});
 };
 
 #endif // BOT_CONFIG_H

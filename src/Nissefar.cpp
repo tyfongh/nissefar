@@ -53,7 +53,14 @@ dpp::task<void> Nissefar::setup_slashcommands() {
     chanstats.add_option(dpp::command_option(dpp::co_channel, "channel",
                                              "Stats from this channel", false));
 
-    bot->global_bulk_command_create({pingcommand, chanstats});
+    dpp::slashcommand announce("announce", "Send a message to a channel",
+                               bot->me.id);
+    announce.add_option(dpp::command_option(dpp::co_channel, "channel",
+                                            "Target channel", true));
+    announce.add_option(
+        dpp::command_option(dpp::co_string, "message", "Message to send", true));
+
+    bot->global_bulk_command_create({pingcommand, chanstats, announce});
     bot->log(dpp::ll_info, "Slashcommands setup");
   }
   co_return;
@@ -90,7 +97,7 @@ void Nissefar::run() {
   bot->log(dpp::ll_info, "Initial process of sheets");
   bot->on_ready([this](const dpp::ready_t &event) -> dpp::task<void> {
     // Only run slashcommands setup when changing things
-    // co_await setup_slashcommands();
+    co_await setup_slashcommands();
     co_await youtube_service->process(true);
     co_await google_docs_service->process_google_docs();
     co_return;

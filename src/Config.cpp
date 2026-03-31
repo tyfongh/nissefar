@@ -81,6 +81,12 @@ Config::Config()
         } catch (...) {
         }
 
+        std::string owner_id;
+        try {
+          owner_id = ini["General"]["owner_id"].as<std::string>();
+        } catch (...) {
+        }
+
         if (discord_token.empty() || google_api_key.empty() ||
             system_prompt.empty() || diff_system_prompt.empty() ||
             text_model.empty() || comparison_model.empty() ||
@@ -94,7 +100,7 @@ Config::Config()
                         image_description_model, ollama_server_url,
                         db_connection_string, video_summary_script_path,
                         max_history, context_size, youtube_summary_bot_id,
-                        youtube_summary_channel_id);
+                        youtube_summary_channel_id, owner_id);
       }()) {}
 
 Config::Config(bool valid, std::string discord_token,
@@ -107,7 +113,8 @@ Config::Config(bool valid, std::string discord_token,
                std::string db_connection_string,
                std::string video_summary_script_path, int max_history,
                int context_size, std::string youtube_summary_bot_id,
-               std::string youtube_summary_channel_id)
+               std::string youtube_summary_channel_id,
+               std::string owner_id)
     : discord_token(std::move(discord_token)),
       google_api_key(std::move(google_api_key)),
       max_history(max_history),
@@ -125,6 +132,7 @@ Config::Config(bool valid, std::string discord_token,
       video_summary_script_path(std::move(video_summary_script_path)),
       youtube_summary_bot_id(std::move(youtube_summary_bot_id)),
       youtube_summary_channel_id(std::move(youtube_summary_channel_id)),
+      owner_id(std::move(owner_id)),
       is_valid(valid) {
   directory_url = std::format("https://www.googleapis.com/drive/v3/"
                               "files?q='1HOwktdiZmm40atGPwymzrxErMi1ZrKPP'+in+"
