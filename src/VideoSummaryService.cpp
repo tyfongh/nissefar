@@ -211,6 +211,8 @@ VideoSummaryService::summarize_video(const std::string &url) const {
   CommandResult result = run_script(*script_path, url, timeout);
   std::string output = trim_copy(result.output);
 
+  bot.log(dpp::ll_info, std::format("Script result: {}", output));
+
   if (result.timed_out) {
     co_return "Tool error: video summarization timed out after 300 seconds.";
   }

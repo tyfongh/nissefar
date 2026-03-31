@@ -97,7 +97,7 @@ void Nissefar::run() {
   bot->log(dpp::ll_info, "Initial process of sheets");
   bot->on_ready([this](const dpp::ready_t &event) -> dpp::task<void> {
     // Only run slashcommands setup when changing things
-    co_await setup_slashcommands();
+    // co_await setup_slashcommands();
     co_await youtube_service->process(true);
     co_await google_docs_service->process_google_docs();
     co_return;
