@@ -191,8 +191,15 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
                       event.msg.author.format_username(), event.msg.content));
 
   for (auto mention : event.msg.mentions) {
-    if (mention.second.user_id == bot.me.id && event.msg.author.id != bot.me.id && current_chan->name == "botspam")
-      answer = true;
+    if (mention.second.user_id == bot.me.id && event.msg.author.id != bot.me.id) {
+      bool in_allowed = std::ranges::find(config.allowed_channels,
+                                          current_chan->name) !=
+                        config.allowed_channels.end();
+      bool admin = is_admin(event.msg.author.id, event.msg.member,
+                            *current_server, config);
+      if (in_allowed || admin)
+        answer = true;
+    }
   }
 
   auto imagelist = co_await llm_service.generate_images(event.msg.attachments);

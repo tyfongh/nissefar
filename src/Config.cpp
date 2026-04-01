@@ -2,6 +2,8 @@
 #include <cstdlib>
 #include <format>
 #include <inicpp.h>
+#include <sstream>
+#include <vector>
 
 Config::Config()
     : Config([] {
@@ -87,6 +89,26 @@ Config::Config()
         } catch (...) {
         }
 
+        std::vector<std::string> allowed_channels = {"botspam"};
+        try {
+          std::string csv =
+              ini["General"]["allowed_channels"].as<std::string>();
+          if (!csv.empty()) {
+            std::vector<std::string> parsed;
+            std::istringstream ss(csv);
+            std::string token;
+            while (std::getline(ss, token, ',')) {
+              auto s = token.find_first_not_of(" \t");
+              auto e = token.find_last_not_of(" \t");
+              if (s != std::string::npos)
+                parsed.push_back(token.substr(s, e - s + 1));
+            }
+            if (!parsed.empty())
+              allowed_channels = std::move(parsed);
+          }
+        } catch (...) {
+        }
+
         if (discord_token.empty() || google_api_key.empty() ||
             system_prompt.empty() || diff_system_prompt.empty() ||
             text_model.empty() || comparison_model.empty() ||
@@ -100,7 +122,8 @@ Config::Config()
                         image_description_model, ollama_server_url,
                         db_connection_string, video_summary_script_path,
                         max_history, context_size, youtube_summary_bot_id,
-                        youtube_summary_channel_id, owner_id);
+                        youtube_summary_channel_id, owner_id,
+                        allowed_channels);
       }()) {}
 
 Config::Config(bool valid, std::string discord_token,
@@ -114,7 +137,8 @@ Config::Config(bool valid, std::string discord_token,
                std::string video_summary_script_path, int max_history,
                int context_size, std::string youtube_summary_bot_id,
                std::string youtube_summary_channel_id,
-               std::string owner_id)
+               std::string owner_id,
+               std::vector<std::string> allowed_channels)
     : discord_token(std::move(discord_token)),
       google_api_key(std::move(google_api_key)),
       max_history(max_history),
@@ -133,6 +157,7 @@ Config::Config(bool valid, std::string discord_token,
       youtube_summary_bot_id(std::move(youtube_summary_bot_id)),
       youtube_summary_channel_id(std::move(youtube_summary_channel_id)),
       owner_id(std::move(owner_id)),
+      allowed_channels(std::move(allowed_channels)),
       is_valid(valid) {
   directory_url = std::format("https://www.googleapis.com/drive/v3/"
                               "files?q='1HOwktdiZmm40atGPwymzrxErMi1ZrKPP'+in+"

@@ -2,6 +2,7 @@
 #define BOT_CONFIG_H
 
 #include <string>
+#include <vector>
 
 class Config {
 public:
@@ -28,6 +29,7 @@ public:
   std::string youtube_summary_bot_id;
   std::string youtube_summary_channel_id;
   std::string owner_id;
+  std::vector<std::string> allowed_channels;
 
   bool is_valid = false;
   bool is_streaming = false;
@@ -42,7 +44,8 @@ public:
           std::string video_summary_script_path, int max_history,
           int context_size, std::string youtube_summary_bot_id = {},
           std::string youtube_summary_channel_id = {},
-          std::string owner_id = {});
+          std::string owner_id = {},
+          std::vector<std::string> allowed_channels = {"botspam"});
 };
 
 #endif // BOT_CONFIG_H
