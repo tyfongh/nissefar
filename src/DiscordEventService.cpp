@@ -217,6 +217,14 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
                        event.msg.content, event.msg.author.id,
                        static_cast<std::int64_t>(event.msg.sent), image_desc};
 
+  if (answer && !is_admin(event.msg.author.id, event.msg.member,
+                          *current_server, config) &&
+      is_rate_limited(event.msg.author.id)) {
+    bot.log(dpp::ll_info,
+            std::format("Rate limited user {}", event.msg.author.id.str()));
+    answer = false;
+  }
+
   if (answer) {
     const dpp::snowflake request_channel_id = event.msg.channel_id;
     const dpp::snowflake request_server_id = event.msg.guild_id;
@@ -465,6 +473,19 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
                 event.msg.author.format_username());
 
   co_return;
+}
+
+bool DiscordEventService::is_rate_limited(dpp::snowflake user_id) const {
+  const auto window =
+      std::chrono::seconds(config.rate_limit_window_seconds);
+  const auto now = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(rate_limit_mutex);
+  auto &timestamps = rate_limit_map[user_id];
+  std::erase_if(timestamps, [&](const auto &t) { return now - t > window; });
+  if (static_cast<int>(timestamps.size()) >= config.rate_limit_count)
+    return true;
+  timestamps.push_back(now);
+  return false;
 }
 
 dpp::task<void>

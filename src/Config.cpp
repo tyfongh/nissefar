@@ -69,6 +69,22 @@ Config::Config()
         } catch (...) {
         }
 
+        int rate_limit_count = 3;
+        try {
+          int v = ini["General"]["rate_limit_count"].as<int>();
+          if (v > 0)
+            rate_limit_count = v;
+        } catch (...) {
+        }
+
+        int rate_limit_window_seconds = 300;
+        try {
+          int v = ini["General"]["rate_limit_window_seconds"].as<int>();
+          if (v > 0)
+            rate_limit_window_seconds = v;
+        } catch (...) {
+        }
+
         std::string youtube_summary_bot_id;
         try {
           youtube_summary_bot_id =
@@ -121,7 +137,8 @@ Config::Config()
                         text_model, comparison_model, vision_model,
                         image_description_model, ollama_server_url,
                         db_connection_string, video_summary_script_path,
-                        max_history, context_size, youtube_summary_bot_id,
+                        max_history, context_size, rate_limit_count,
+                        rate_limit_window_seconds, youtube_summary_bot_id,
                         youtube_summary_channel_id, owner_id,
                         allowed_channels);
       }()) {}
@@ -135,7 +152,9 @@ Config::Config(bool valid, std::string discord_token,
                std::string ollama_server_url,
                std::string db_connection_string,
                std::string video_summary_script_path, int max_history,
-               int context_size, std::string youtube_summary_bot_id,
+               int context_size, int rate_limit_count,
+               int rate_limit_window_seconds,
+               std::string youtube_summary_bot_id,
                std::string youtube_summary_channel_id,
                std::string owner_id,
                std::vector<std::string> allowed_channels)
@@ -143,6 +162,8 @@ Config::Config(bool valid, std::string discord_token,
       google_api_key(std::move(google_api_key)),
       max_history(max_history),
       context_size(context_size),
+      rate_limit_count(rate_limit_count),
+      rate_limit_window_seconds(rate_limit_window_seconds),
       system_prompt(std::move(system_prompt)),
       diff_system_prompt(std::move(diff_system_prompt)),
       image_description_system_prompt(

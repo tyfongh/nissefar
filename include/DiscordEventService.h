@@ -5,8 +5,11 @@
 #include <Domain.h>
 #include <LlmService.h>
 #include <dpp/dpp.h>
+#include <chrono>
 #include <mutex>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 class GoogleDocsService;
 class WebPageService;
@@ -45,7 +48,13 @@ private:
   const YoutubeService &youtube_service;
   const VideoSummaryService &video_summary_service;
   const CalculationService &calculation_service;
+  bool is_rate_limited(dpp::snowflake user_id) const;
+
   mutable std::mutex heavy_tool_mutex;
+  mutable std::mutex rate_limit_mutex;
+  mutable std::unordered_map<dpp::snowflake,
+                             std::vector<std::chrono::steady_clock::time_point>>
+      rate_limit_map;
 };
 
 #endif // DISCORDEVENTSERVICE_H
