@@ -47,17 +47,6 @@ inline ollama::response chat(Ollama &client, const std::string &model,
   return client.chat(request);
 }
 
-inline bool chat(Ollama &client, const std::string &model,
-                 const ollama::messages &messages,
-                 std::function<bool(const ollama::response &)> on_receive_token,
-                 const ollama::options &options, const tools &available_tools,
-                 const std::string &keep_alive_duration = "5m") {
-  ollama::request request =
-      make_chat_request(model, messages, options, available_tools, true,
-                        keep_alive_duration);
-  return client.chat(request, std::move(on_receive_token));
-}
-
 inline bool has_tool_calls(const ollama::response &response) {
   const auto &payload = response.as_json();
   return payload.contains("message") && payload["message"].is_object() &&
