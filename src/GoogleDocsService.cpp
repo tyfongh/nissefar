@@ -1,61 +1,12 @@
 #include <DiffUtil.h>
 #include <GoogleDocsService.h>
 
-#include <set>
 #include <sstream>
 
 GoogleDocsService::GoogleDocsService(const Config &config, dpp::cluster &bot,
                                      const LlmService &llm_service)
     : config(config), bot(bot), llm_service(llm_service) {}
 
-std::string GoogleDocsService::format_sheet_context() const {
-  std::string context{};
-  static const std::set<std::string> include_tabs = {"Range", "1000 km"};
-
-  if (sheet_data.empty()) {
-    return context;
-  }
-
-  context = "Google Sheets context:";
-
-  for (const auto &[filename, tabs] : sheet_data) {
-    if (filename == "Charging curves") {
-      continue;
-    }
-
-    if (tabs.empty()) {
-      continue;
-    }
-
-    for (const auto &[sheet_id, csv_data] : tabs) {
-      std::string sheet_name = "Unknown";
-      std::string header = "";
-
-      auto file_meta = sheet_metadata.find(filename);
-      if (file_meta != sheet_metadata.end()) {
-        auto tab_meta = file_meta->second.find(sheet_id);
-        if (tab_meta != file_meta->second.end()) {
-          sheet_name = tab_meta->second.sheet_name;
-          header = tab_meta->second.header;
-        }
-      }
-
-      if (!include_tabs.contains(sheet_name)) {
-        continue;
-      }
-
-      context += std::format("\n----------------------\n"
-                             "File: {}\n"
-                             "Tab: {} (gid: {})\n"
-                             "Header: {}\n"
-                             "CSV data:\n{}",
-                             filename, sheet_name, sheet_id, header, csv_data);
-    }
-  }
-
-  context += "\n----------------------\n";
-  return context;
-}
 
 std::optional<std::string>
 GoogleDocsService::get_sheet_csv_by_tab_name(const std::string &sheet_name,

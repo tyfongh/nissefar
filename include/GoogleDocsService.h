@@ -14,7 +14,6 @@ public:
   GoogleDocsService(const Config &config, dpp::cluster &bot,
                     const LlmService &llm_service);
 
-  std::string format_sheet_context() const;
   std::optional<std::string>
   get_sheet_csv_by_tab_name(const std::string &sheet_name,
                             bool transpose = false) const;
