@@ -32,6 +32,7 @@ public:
   std::string youtube_summary_channel_id;
   std::string owner_id;
   std::vector<std::string> allowed_channels;
+  std::vector<std::string> youtube_skip_channel_names;
 
   bool is_valid = false;
   bool is_streaming = false;
@@ -49,7 +50,8 @@ public:
           std::string youtube_summary_bot_id = {},
           std::string youtube_summary_channel_id = {},
           std::string owner_id = {},
-          std::vector<std::string> allowed_channels = {"botspam"});
+          std::vector<std::string> allowed_channels = {"botspam"},
+          std::vector<std::string> youtube_skip_channel_names = {});
 };
 
 #endif // BOT_CONFIG_H

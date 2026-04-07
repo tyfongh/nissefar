@@ -125,6 +125,23 @@ Config::Config()
         } catch (...) {
         }
 
+        std::vector<std::string> youtube_skip_channel_names;
+        try {
+          std::string csv =
+              ini["General"]["youtube_skip_channel_names"].as<std::string>();
+          if (!csv.empty()) {
+            std::istringstream ss(csv);
+            std::string token;
+            while (std::getline(ss, token, ',')) {
+              auto s = token.find_first_not_of(" \t");
+              auto e = token.find_last_not_of(" \t");
+              if (s != std::string::npos)
+                youtube_skip_channel_names.push_back(token.substr(s, e - s + 1));
+            }
+          }
+        } catch (...) {
+        }
+
         if (discord_token.empty() || google_api_key.empty() ||
             system_prompt.empty() || diff_system_prompt.empty() ||
             text_model.empty() || comparison_model.empty() ||
@@ -140,7 +157,7 @@ Config::Config()
                         max_history, context_size, rate_limit_count,
                         rate_limit_window_seconds, youtube_summary_bot_id,
                         youtube_summary_channel_id, owner_id,
-                        allowed_channels);
+                        allowed_channels, youtube_skip_channel_names);
       }()) {}
 
 Config::Config(bool valid, std::string discord_token,
@@ -157,7 +174,8 @@ Config::Config(bool valid, std::string discord_token,
                std::string youtube_summary_bot_id,
                std::string youtube_summary_channel_id,
                std::string owner_id,
-               std::vector<std::string> allowed_channels)
+               std::vector<std::string> allowed_channels,
+               std::vector<std::string> youtube_skip_channel_names)
     : discord_token(std::move(discord_token)),
       google_api_key(std::move(google_api_key)),
       max_history(max_history),
@@ -179,6 +197,7 @@ Config::Config(bool valid, std::string discord_token,
       youtube_summary_channel_id(std::move(youtube_summary_channel_id)),
       owner_id(std::move(owner_id)),
       allowed_channels(std::move(allowed_channels)),
+      youtube_skip_channel_names(std::move(youtube_skip_channel_names)),
       is_valid(valid) {
   directory_url = std::format("https://www.googleapis.com/drive/v3/"
                               "files?q='1HOwktdiZmm40atGPwymzrxErMi1ZrKPP'+in+"

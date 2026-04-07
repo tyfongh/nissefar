@@ -6,6 +6,7 @@
 #include <LlmService.h>
 #include <dpp/dpp.h>
 #include <chrono>
+#include <deque>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -39,6 +40,7 @@ private:
   void store_message(const Message &message, dpp::guild *server,
                      dpp::channel *channel, const std::string &user_name) const;
   dpp::task<void> handle_carlbot_video(const dpp::message_create_t &event);
+  dpp::task<void> run_summary_queue(dpp::snowflake channel_id);
 
   const Config &config;
   dpp::cluster &bot;
@@ -52,6 +54,9 @@ private:
 
   mutable std::mutex heavy_tool_mutex;
   mutable std::mutex rate_limit_mutex;
+  std::mutex summary_queue_mutex;
+  std::deque<std::string> summary_queue;
+  bool summary_loop_running = false;
   mutable std::unordered_map<dpp::snowflake,
                              std::vector<std::chrono::steady_clock::time_point>>
       rate_limit_map;

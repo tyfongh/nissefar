@@ -4,7 +4,10 @@ YoutubeService::YoutubeService(Config &config, dpp::cluster &bot,
                                const LlmService &llm_service)
     : config(config), bot(bot), llm_service(llm_service) {}
 
-dpp::task<bool> YoutubeService::is_live_broadcast(const std::string &video_id) const {
+dpp::task<bool> YoutubeService::is_from_ignored_channel(const std::string &video_id) const {
+  if (config.youtube_skip_channel_names.empty())
+    co_return false;
+
   const std::string url = std::format(
       "https://www.googleapis.com/youtube/v3/videos?part=snippet&id={}&key={}",
       video_id, config.google_api_key);
@@ -16,11 +19,14 @@ dpp::task<bool> YoutubeService::is_live_broadcast(const std::string &video_id) c
     if (data.contains("items") && data["items"].is_array() &&
         !data["items"].empty()) {
       const auto &snippet = data["items"][0]["snippet"];
-      if (snippet.contains("liveBroadcastContent") &&
-          snippet["liveBroadcastContent"].is_string()) {
-        const std::string lbc =
-            snippet["liveBroadcastContent"].get<std::string>();
-        co_return lbc == "live" || lbc == "upcoming";
+      if (snippet.contains("channelTitle") &&
+          snippet["channelTitle"].is_string()) {
+        const std::string channel_title =
+            snippet["channelTitle"].get<std::string>();
+        for (const auto &name : config.youtube_skip_channel_names) {
+          if (channel_title == name)
+            co_return true;
+        }
       }
     }
   } catch (...) {

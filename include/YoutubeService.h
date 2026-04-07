@@ -18,7 +18,7 @@ public:
 
   dpp::task<void> process(bool first_run);
   StreamStatus get_stream_status() const;
-  dpp::task<bool> is_live_broadcast(const std::string &video_id) const;
+  dpp::task<bool> is_from_ignored_channel(const std::string &video_id) const;
 
 private:
   Config &config;
