@@ -147,6 +147,7 @@ pqxx::result fetch_channel_history(dpp::snowflake channel_id, int max_history) {
                     "     , u.user_snowflake_id "
                     "     , m.content "
                     "     , m.image_descriptions "
+                    "     , m.created_at "
                     "from message m "
                     "inner join discord_user u on (u.user_id = m.user_id) "
                     "inner join channel c on (c.channel_id = m.channel_id) "

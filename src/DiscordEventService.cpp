@@ -113,10 +113,12 @@ DiscordEventService::format_message_history(dpp::snowflake channel_id) const {
                       "Message id: {}\n"
                       "Reply to message id: {}\n"
                       "Author: {}\n"
+                      "Timestamp: {}\n"
                       "Message content: {}",
                       message["message_snowflake_id"].as<std::string>(),
                       message["reply_to_snowflake_id"].as<std::string>(),
                       message["user_snowflake_id"].as<std::string>(),
+                      message["created_at"].as<std::string>(),
                       message["content"].as<std::string>());
 
       auto react_res =
