@@ -5,6 +5,15 @@
 
 namespace {
 
+ollama::images to_ollama_images(const LlmImages &imagelist) {
+  ollama::images ollama_imagelist;
+  ollama_imagelist.reserve(imagelist.size());
+  for (const auto &image : imagelist) {
+    ollama_imagelist.emplace_back(image);
+  }
+  return ollama_imagelist;
+}
+
 std::string response_to_text(const ollama::response &response) {
   const auto payload = response.as_json();
 
@@ -92,9 +101,9 @@ LlmService::LlmService(const Config &config, dpp::cluster &bot)
   ollama_client.setWriteTimeout(360);
 }
 
-dpp::task<ollama::images> LlmService::generate_images(
+dpp::task<LlmImages> LlmService::generate_images(
     std::vector<dpp::attachment> attachments) const {
-  ollama::images imagelist;
+  LlmImages imagelist;
   for (const auto &attachment : attachments) {
     if (attachment.content_type == "image/jpeg" ||
         attachment.content_type == "image/webp" ||
@@ -103,20 +112,20 @@ dpp::task<ollama::images> LlmService::generate_images(
           co_await bot.co_request(attachment.url, dpp::m_get);
       bot.log(dpp::ll_info,
               std::format("Image size: {}", attachment_data.body.size()));
-      imagelist.push_back(ollama::image(
-          macaron::Base64::Encode(std::string(attachment_data.body))));
+      imagelist.push_back(macaron::Base64::Encode(std::string(attachment_data.body)));
     }
   }
   co_return imagelist;
 }
 
 std::string LlmService::generate_text(const std::string &prompt,
-                                      const ollama::images &imagelist,
+                                      const LlmImages &imagelist,
                                       GenerationType gen_type) const {
   ollama::options opts;
   std::string model;
   std::string system_prompt;
   ollama::messages messages;
+  const ollama::images ollama_imagelist = to_ollama_images(imagelist);
 
   opts["num_ctx"] = config.context_size;
 
@@ -128,7 +137,7 @@ std::string LlmService::generate_text(const std::string &prompt,
     if (imagelist.size() > 0) {
       model = config.vision_model;
       ollama::message user_message("user", prompt);
-      user_message["images"] = imagelist;
+      user_message["images"] = ollama_imagelist;
       messages.push_back(user_message);
     } else {
       model = config.text_model;
@@ -146,7 +155,7 @@ std::string LlmService::generate_text(const std::string &prompt,
     model = config.image_description_model;
     {
       ollama::message user_message("user", prompt);
-      user_message["images"] = imagelist;
+      user_message["images"] = ollama_imagelist;
       messages.push_back(user_message);
     }
     break;
@@ -161,7 +170,7 @@ std::string LlmService::generate_text(const std::string &prompt,
         (gen_type == GenerationType::TextReply && !imagelist.empty());
 
     if (use_generate_endpoint) {
-      ollama::request request(model, prompt, opts, false, imagelist);
+      ollama::request request(model, prompt, opts, false, ollama_imagelist);
       request["system"] = system_prompt;
       const ollama::response response = ollama_client.generate(request);
       answer = response_to_text(response);
@@ -187,7 +196,7 @@ std::string LlmService::generate_text(const std::string &prompt,
 }
 
 dpp::task<std::string> LlmService::generate_text_with_tools(
-    const std::string &prompt, const ollama::images &imagelist,
+    const std::string &prompt, const LlmImages &imagelist,
     const std::vector<LlmService::ToolDefinition> &available_tools,
     const std::function<dpp::task<std::string>(const std::string &,
                                                const std::string &)>
@@ -198,14 +207,14 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
 
   ollama::options opts;
   opts["num_predict"] = config.num_predict;
+  const ollama::images ollama_imagelist = to_ollama_images(imagelist);
 
   ollama_tools::tools json_tools;
   for (const auto &tool : available_tools) {
-    ollama::json parameters =
-        ollama::json{{"type", "object"}, {"properties", ollama::json::object()}};
+    Json parameters = Json{{"type", "object"}, {"properties", Json::object()}};
     if (!tool.parameters_schema_json.empty()) {
       try {
-        parameters = ollama::json::parse(tool.parameters_schema_json);
+        parameters = Json::parse(tool.parameters_schema_json);
       } catch (...) {
       }
     }
@@ -220,7 +229,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
 
   if (!imagelist.empty()) {
     ollama::message user_message("user", prompt);
-    user_message["images"] = imagelist;
+    user_message["images"] = ollama_imagelist;
     messages.push_back(user_message);
   } else {
     messages.emplace_back("user", prompt);

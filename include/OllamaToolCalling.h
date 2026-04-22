@@ -1,6 +1,8 @@
 #ifndef OLLAMA_TOOL_CALLING_H
 #define OLLAMA_TOOL_CALLING_H
 
+#include <Json.h>
+
 #include <ollama.hpp>
 #include <string>
 #include <utility>
@@ -8,17 +10,17 @@
 
 namespace ollama_tools {
 
-using tools = std::vector<ollama::json>;
+using tools = std::vector<Json>;
 
-inline ollama::json make_function_tool(const std::string &name,
-                                       const std::string &description,
-                                       const ollama::json &parameters) {
-  ollama::json function = ollama::json::object();
+inline Json make_function_tool(const std::string &name,
+                               const std::string &description,
+                               const Json &parameters) {
+  Json function = Json::object();
   function["name"] = name;
   function["description"] = description;
   function["parameters"] = parameters;
 
-  ollama::json tool = ollama::json::object();
+  Json tool = Json::object();
   tool["type"] = "function";
   tool["function"] = std::move(function);
   return tool;
@@ -55,9 +57,9 @@ inline bool has_tool_calls(const ollama::response &response) {
          !payload["message"]["tool_calls"].empty();
 }
 
-inline ollama::json tool_calls(const ollama::response &response) {
+inline Json tool_calls(const ollama::response &response) {
   if (!has_tool_calls(response))
-    return ollama::json::array();
+    return Json::array();
   return response.as_json()["message"]["tool_calls"];
 }
 

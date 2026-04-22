@@ -1,12 +1,12 @@
 #include <AnalyticsQuery.h>
 
+#include <Json.h>
+
 #include <algorithm>
 #include <cctype>
 #include <format>
 #include <set>
 #include <string>
-
-#include <ollama.hpp>
 
 namespace {
 
@@ -133,7 +133,7 @@ std::string time_filter_sql(const std::string &time_range, const std::string &ti
   return "";
 }
 
-bool parse_limit(const ollama::json &request, int default_limit, int max_limit,
+bool parse_limit(const Json &request, int default_limit, int max_limit,
                  int &out_limit) {
   out_limit = default_limit;
   if (!request.contains("limit")) {
@@ -155,7 +155,7 @@ bool parse_limit(const ollama::json &request, int default_limit, int max_limit,
   return true;
 }
 
-bool parse_emoji_filters(const ollama::json &request,
+bool parse_emoji_filters(const Json &request,
                          std::vector<EmojiFilter> &filters,
                          std::vector<std::string> &bind_params,
                          std::string &error) {
@@ -238,9 +238,9 @@ std::string build_emoji_clause(const std::vector<EmojiFilter> &filters,
 namespace analytics_query {
 
 ParseResult parse_and_compile(const std::string &request_json) {
-  ollama::json request;
+  Json request;
   try {
-    request = ollama::json::parse(request_json);
+    request = Json::parse(request_json);
   } catch (...) {
     return {std::nullopt, "invalid tool arguments JSON."};
   }

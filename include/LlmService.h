@@ -2,6 +2,7 @@
 #define LLMSERVICE_H
 
 #include <Config.h>
+#include <LlmTypes.h>
 #include <dpp/dpp.h>
 #include <ollama.hpp>
 #include <functional>
@@ -21,19 +22,18 @@ public:
   LlmService(const Config &config, dpp::cluster &bot);
 
   std::string generate_text(const std::string &prompt,
-                            const ollama::images &imagelist,
+                            const LlmImages &imagelist,
                             GenerationType gen_type) const;
 
   dpp::task<std::string>
   generate_text_with_tools(const std::string &prompt,
-                           const ollama::images &imagelist,
+                           const LlmImages &imagelist,
                            const std::vector<ToolDefinition> &available_tools,
                            const std::function<dpp::task<std::string>(
                                const std::string &, const std::string &)>
                                &tool_executor) const;
 
-  dpp::task<ollama::images>
-  generate_images(std::vector<dpp::attachment> attachments) const;
+  dpp::task<LlmImages> generate_images(std::vector<dpp::attachment> attachments) const;
 
 private:
   const Config &config;

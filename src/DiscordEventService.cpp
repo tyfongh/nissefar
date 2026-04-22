@@ -4,6 +4,7 @@
 #include <AnalyticsQuery.h>
 #include <Formatting.h>
 #include <GoogleDocsService.h>
+#include <Json.h>
 #include <CalculationService.h>
 #include <WebPageService.h>
 #include <VideoSummaryService.h>
@@ -208,7 +209,7 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
   std::vector<std::string> image_desc{};
 
   for (auto image : imagelist) {
-    ollama::images tmp_image;
+    LlmImages tmp_image;
     tmp_image.push_back(image);
     image_desc.push_back(llm_service.generate_text(
         "Describe the image.", tmp_image,
@@ -322,7 +323,7 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
 
         std::string requested_url;
         try {
-          ollama::json args = ollama::json::parse(arguments_json);
+          Json args = Json::parse(arguments_json);
           if (args.contains("url") && args["url"].is_string()) {
             requested_url = args["url"].get<std::string>();
           }
@@ -350,7 +351,7 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
 
         std::string requested_url;
         try {
-          ollama::json args = ollama::json::parse(arguments_json);
+          Json args = Json::parse(arguments_json);
           if (args.contains("url") && args["url"].is_string()) {
             requested_url = args["url"].get<std::string>();
           }
@@ -375,7 +376,7 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         std::string expression;
         int scale = 10;
         try {
-          ollama::json args = ollama::json::parse(arguments_json);
+          Json args = Json::parse(arguments_json);
           if (args.contains("expression") && args["expression"].is_string()) {
             expression = args["expression"].get<std::string>();
           }
@@ -423,7 +424,7 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
 
       if (tool_name == "get_youtube_stream_status") {
         const auto status = youtube_service.get_stream_status();
-        ollama::json payload = ollama::json::object();
+        Json payload = Json::object();
         payload["is_live"] = status.is_live;
         if (status.is_live && !status.title.empty()) {
           payload["title"] = status.title;
@@ -568,7 +569,7 @@ dpp::task<void> DiscordEventService::run_summary_queue(dpp::snowflake channel_id
 
       std::string requested_url;
       try {
-        ollama::json args = ollama::json::parse(arguments_json);
+        Json args = Json::parse(arguments_json);
         if (args.contains("url") && args["url"].is_string())
           requested_url = args["url"].get<std::string>();
       } catch (...) {
@@ -586,7 +587,7 @@ dpp::task<void> DiscordEventService::run_summary_queue(dpp::snowflake channel_id
         std::format("A YouTube video was posted. Summarize it: {}", url);
 
     auto summary = co_await llm_service.generate_text_with_tools(
-        prompt, ollama::images{}, summary_tools, execute_summary_tool);
+        prompt, LlmImages{}, summary_tools, execute_summary_tool);
 
     dpp::message msg(channel_id, std::format("Summarization of the video:\n||{}||", summary));
     bot.message_create(msg);
@@ -617,7 +618,7 @@ DiscordEventService::handle_slashcommand(const dpp::slashcommand_t &event) {
           auto answer = llm_service.generate_text(
               std::format("The user {} pinged you with the ping command",
                           event.command.get_issuing_user().id.str()),
-              ollama::images{}, LlmService::GenerationType::TextReply);
+              LlmImages{}, LlmService::GenerationType::TextReply);
           event.edit_original_response(
               dpp::message(answer).set_flags(dpp::m_ephemeral));
         });

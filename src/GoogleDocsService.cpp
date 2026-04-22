@@ -140,11 +140,11 @@ dpp::task<void> GoogleDocsService::process_diffs() {
       auto prompt = std::format(
           "Filename: {}\nSheet name: {}\nCSV Header: {}\nDiff:\n{}", filename,
           diffdata.sheet_name, diffdata.header, diffdata.diffdata);
-      auto answer = co_await dpp::async<std::string>(
-          [&](std::function<void(std::string)> cb) {
-            bot.queue_work(10, [cb = std::move(cb), prompt,
+        auto answer = co_await dpp::async<std::string>(
+            [&](std::function<void(std::string)> cb) {
+              bot.queue_work(10, [cb = std::move(cb), prompt,
                                 &llm = llm_service]() mutable {
-              cb(llm.generate_text(prompt, ollama::images{},
+              cb(llm.generate_text(prompt, LlmImages{},
                                    LlmService::GenerationType::Diff));
             });
           });

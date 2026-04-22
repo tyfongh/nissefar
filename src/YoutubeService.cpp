@@ -93,7 +93,7 @@ dpp::task<void> YoutubeService::process(bool first_run) {
 
         bot.log(dpp::ll_info, prompt);
         auto answer = llm_service.generate_text(
-            prompt, ollama::images{}, LlmService::GenerationType::TextReply);
+            prompt, LlmImages{}, LlmService::GenerationType::TextReply);
 
         for (auto video : live_streams)
           answer.append(
