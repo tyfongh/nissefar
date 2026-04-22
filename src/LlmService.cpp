@@ -41,6 +41,11 @@ std::string response_shape(const ollama::response &response) {
   return std::format("message.content type={}", message["content"].type_name());
 }
 
+int estimate_num_ctx(std::size_t input_bytes, int num_predict) {
+  const int ctx = static_cast<int>(input_bytes / 3.5 * 1.2) + num_predict;
+  return std::max(ctx, 2048);
+}
+
 std::string truncate_for_log(std::string value, std::size_t max_size) {
   if (value.size() <= max_size) {
     return value;
@@ -193,7 +198,6 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
 
   ollama::options opts;
   opts["num_predict"] = 1000;
-  opts["num_ctx"] = config.context_size;
 
   ollama_tools::tools json_tools;
   for (const auto &tool : available_tools) {
@@ -220,6 +224,19 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
     messages.push_back(user_message);
   } else {
     messages.emplace_back("user", prompt);
+  }
+
+  // Estimate initial num_ctx from serialized content size
+  {
+    std::size_t initial_bytes = 0;
+    for (const auto &msg : messages)
+      initial_bytes += msg.dump().size();
+    for (const auto &tool : json_tools)
+      initial_bytes += tool.dump().size();
+    opts["num_ctx"] = estimate_num_ctx(initial_bytes, 1000);
+    bot.log(dpp::ll_info,
+            std::format("Initial num_ctx={} (estimated from {} bytes)",
+                        static_cast<int>(opts["num_ctx"]), initial_bytes));
   }
 
   std::string answer{};
@@ -293,6 +310,13 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
 
       messages.push_back(ollama_tools::assistant_message(response));
 
+      int prompt_eval_count = 0;
+      if (payload.contains("prompt_eval_count") &&
+          payload["prompt_eval_count"].is_number_integer())
+        prompt_eval_count = payload["prompt_eval_count"].get<int>();
+
+      std::size_t iteration_tool_output_bytes = 0;
+
       for (const auto &tool_call : ollama_tools::tool_calls(response)) {
         std::string tool_name = "unknown_tool";
         std::string arguments_json = "{}";
@@ -341,6 +365,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
         }
 
         last_tool_output_size = tool_output.size();
+        iteration_tool_output_bytes += tool_output.size();
         last_tool_output_preview = tool_output;
         if (last_tool_output_preview.size() > 300) {
           last_tool_output_preview.resize(300);
@@ -350,6 +375,18 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
                 std::format("Tool call result: {} output_bytes={}", tool_name,
                             tool_output.size()));
         messages.push_back(ollama_tools::tool_result_message(tool_name, tool_output));
+      }
+
+      if (prompt_eval_count > 0) {
+        const int new_ctx = static_cast<int>(
+            (prompt_eval_count + iteration_tool_output_bytes / 3.5 + 1000) * 1.2);
+        const int current_ctx = opts["num_ctx"].get<int>();
+        if (new_ctx > current_ctx) {
+          opts["num_ctx"] = new_ctx;
+          bot.log(dpp::ll_info,
+                  std::format("Updated num_ctx={} (prompt_eval_count={} tool_bytes={})",
+                              new_ctx, prompt_eval_count, iteration_tool_output_bytes));
+        }
       }
 
       if (analytics_tool_used) {
