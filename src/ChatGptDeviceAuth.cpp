@@ -55,6 +55,48 @@ std::optional<Json> parse_json_body(const httplib::Result &response,
   }
 }
 
+OAuthTokenResult parse_oauth_token_response(const httplib::Result &response,
+                                            const std::string &failure_prefix) {
+  if (!response) {
+    return {std::nullopt,
+            std::format("{}: {}", failure_prefix,
+                        httplib::to_string(response.error()))};
+  }
+  if (response->status < 200 || response->status >= 300) {
+    return {std::nullopt,
+            std::format("{}: HTTP {}", failure_prefix, response->status)};
+  }
+
+  std::string error;
+  auto payload = parse_json_body(response, error);
+  if (!payload.has_value()) {
+    return {std::nullopt, std::move(error)};
+  }
+
+  if (!payload->contains("access_token") ||
+      !(*payload)["access_token"].is_string() ||
+      !payload->contains("refresh_token") ||
+      !(*payload)["refresh_token"].is_string()) {
+    return {std::nullopt, "Token response is missing required fields."};
+  }
+
+  int expires_in = 3600;
+  if (payload->contains("expires_in") && (*payload)["expires_in"].is_number()) {
+    expires_in = (*payload)["expires_in"].get<int>();
+  }
+
+  OAuthTokenResponse tokens{.access_token =
+                                (*payload)["access_token"].get<std::string>(),
+                            .refresh_token =
+                                (*payload)["refresh_token"].get<std::string>(),
+                            .id_token = payload->contains("id_token") &&
+                                                (*payload)["id_token"].is_string()
+                                            ? (*payload)["id_token"].get<std::string>()
+                                            : std::string(),
+                            .expires_in = expires_in};
+  return {tokens, {}};
+}
+
 std::string decode_base64url(std::string value) {
   for (char &ch : value) {
     if (ch == '-')
@@ -228,44 +270,21 @@ OAuthTokenResult Client::exchange_authorization_code(
   const auto response = client.Post("/oauth/token", body,
                                     "application/x-www-form-urlencoded");
 
-  if (!response) {
-    return {std::nullopt,
-            std::format("Token exchange failed: {}",
-                        httplib::to_string(response.error()))};
-  }
-  if (response->status < 200 || response->status >= 300) {
-    return {std::nullopt,
-            std::format("Token exchange failed: HTTP {}", response->status)};
-  }
+  return parse_oauth_token_response(response, "Token exchange failed");
+}
 
-  std::string error;
-  auto payload = parse_json_body(response, error);
-  if (!payload.has_value()) {
-    return {std::nullopt, std::move(error)};
-  }
+OAuthTokenResult Client::refresh_access_token(
+    const std::string &refresh_token) const {
+  httplib::SSLClient client("auth.openai.com");
+  configure_auth_client(client);
 
-  if (!payload->contains("access_token") ||
-      !(*payload)["access_token"].is_string() ||
-      !payload->contains("refresh_token") ||
-      !(*payload)["refresh_token"].is_string()) {
-    return {std::nullopt, "Token exchange response is missing required fields."};
-  }
+  const std::string body =
+      std::format("grant_type=refresh_token&refresh_token={}&client_id={}",
+                  url_encode(refresh_token), url_encode(kClientId));
+  const auto response = client.Post("/oauth/token", body,
+                                    "application/x-www-form-urlencoded");
 
-  int expires_in = 3600;
-  if (payload->contains("expires_in") && (*payload)["expires_in"].is_number()) {
-    expires_in = (*payload)["expires_in"].get<int>();
-  }
-
-  OAuthTokenResponse tokens{.access_token =
-                                (*payload)["access_token"].get<std::string>(),
-                            .refresh_token =
-                                (*payload)["refresh_token"].get<std::string>(),
-                            .id_token = payload->contains("id_token") &&
-                                                (*payload)["id_token"].is_string()
-                                            ? (*payload)["id_token"].get<std::string>()
-                                            : std::string(),
-                            .expires_in = expires_in};
-  return {tokens, {}};
+  return parse_oauth_token_response(response, "Token refresh failed");
 }
 
 std::optional<Json> parse_jwt_claims(const std::string &token) {

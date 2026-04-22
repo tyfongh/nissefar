@@ -66,6 +66,7 @@ public:
   OAuthTokenResult exchange_authorization_code(
       const std::string &authorization_code,
       const std::string &code_verifier) const;
+  OAuthTokenResult refresh_access_token(const std::string &refresh_token) const;
 };
 
 std::optional<Json> parse_jwt_claims(const std::string &token);

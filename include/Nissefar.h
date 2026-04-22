@@ -23,7 +23,7 @@ private:
   // variables
 
   Config config{};
-  ChatGptAuth auth{};
+  std::shared_ptr<ChatGptAuthManager> auth_manager;
   std::unique_ptr<dpp::cluster> bot;
   std::unique_ptr<LlmService> llm_service;
   std::unique_ptr<DiscordEventService> discord_event_service;

@@ -195,32 +195,32 @@ Important runtime headers:
 ## Phase 5: Bot-Side Token Refresh
 
 ### 5.1 Implement token manager
-- [ ] Load auth on demand
-- [ ] Determine whether token is expired
-- [ ] Refresh lazily before requests
-- [ ] Persist updated token values immediately
+- [x] Load auth on demand
+- [x] Determine whether token is expired
+- [x] Refresh lazily before requests
+- [x] Persist updated token values immediately
 
 ### 5.2 Implement refresh request
-- [ ] `POST https://auth.openai.com/oauth/token`
-- [ ] Send:
-  - [ ] `grant_type=refresh_token`
-  - [ ] `refresh_token`
-  - [ ] `client_id`
-- [ ] Parse new:
-  - [ ] `access_token`
-  - [ ] `refresh_token`
-  - [ ] `expires_in`
-  - [ ] `id_token` if present
+- [x] `POST https://auth.openai.com/oauth/token`
+- [x] Send:
+  - [x] `grant_type=refresh_token`
+  - [x] `refresh_token`
+  - [x] `client_id`
+- [x] Parse new:
+  - [x] `access_token`
+  - [x] `refresh_token`
+  - [x] `expires_in`
+  - [x] `id_token` if present
 
 ### 5.3 Refresh robustness
-- [ ] Handle refresh failures clearly
-- [ ] Surface a user-safe failure message from bot runtime
-- [ ] Avoid token-refresh storms under concurrent requests
-- [ ] Add locking around auth refresh/update if needed
+- [x] Handle refresh failures clearly
+- [x] Surface a user-safe failure message from bot runtime
+- [x] Avoid token-refresh storms under concurrent requests
+- [x] Add locking around auth refresh/update if needed
 
 ### 5.4 Preserve/update account ID
-- [ ] Recompute `accountId` from refreshed tokens when possible
-- [ ] Keep previous `accountId` if refresh does not provide a new one
+- [x] Recompute `accountId` from refreshed tokens when possible
+- [x] Keep previous `accountId` if refresh does not provide a new one
 
 ## Phase 6: HTTP / Codex Client
 

@@ -18,13 +18,13 @@ Nissefar::Nissefar() {
                                  : config.validation_error);
   }
 
-  const auto auth_result = ChatGptAuthStore::load();
+  auth_manager = std::make_shared<ChatGptAuthManager>();
+  const auto auth_result = auth_manager->load();
   if (!auth_result.ok()) {
     throw std::runtime_error(auth_result.error.empty()
                                  ? "ChatGPT auth is invalid"
                                  : auth_result.error);
   }
-  auth = *auth_result.auth;
 
   bot = std::make_unique<dpp::cluster>(
       config.discord_token, dpp::i_default_intents | dpp::i_message_content);
@@ -40,7 +40,7 @@ Nissefar::Nissefar() {
   bot->log(dpp::ll_info,
            std::format("LLM context size: {}", config.context_size));
 
-  llm_service = std::make_unique<LlmService>(config, *bot);
+  llm_service = std::make_unique<LlmService>(config, *bot, auth_manager);
   google_docs_service =
       std::make_unique<GoogleDocsService>(config, *bot, *llm_service);
   youtube_service =

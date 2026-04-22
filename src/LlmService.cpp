@@ -95,8 +95,10 @@ std::string tool_call_names_for_log(const ollama::response &response) {
 
 } // namespace
 
-LlmService::LlmService(const Config &config, dpp::cluster &bot)
-    : config(config), bot(bot), ollama_client("http://localhost:11434") {
+LlmService::LlmService(const Config &config, dpp::cluster &bot,
+                       std::shared_ptr<ChatGptAuthManager> auth_manager)
+    : config(config), bot(bot), auth_manager(std::move(auth_manager)),
+      ollama_client("http://localhost:11434") {
   ollama_client.setReadTimeout(360);
   ollama_client.setWriteTimeout(360);
 }
@@ -121,6 +123,16 @@ dpp::task<LlmImages> LlmService::generate_images(
 std::string LlmService::generate_text(const std::string &prompt,
                                       const LlmImages &imagelist,
                                       GenerationType gen_type) const {
+  if (auth_manager) {
+    const auto auth_result = auth_manager->ensure_valid();
+    if (!auth_result.ok()) {
+      bot.log(dpp::ll_error,
+              std::format("ChatGPT auth failure before generation: {}",
+                          auth_result.error));
+      return "Unable to authenticate with ChatGPT right now.";
+    }
+  }
+
   ollama::options opts;
   std::string model;
   std::string system_prompt;
@@ -202,6 +214,16 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
         &tool_executor) const {
   if (!imagelist.empty()) {
     co_return generate_text(prompt, imagelist, GenerationType::TextReply);
+  }
+
+  if (auth_manager) {
+    const auto auth_result = auth_manager->ensure_valid();
+    if (!auth_result.ok()) {
+      bot.log(dpp::ll_error,
+              std::format("ChatGPT auth failure before tool generation: {}",
+                          auth_result.error));
+      co_return "Unable to authenticate with ChatGPT right now.";
+    }
   }
 
   ollama::options opts;

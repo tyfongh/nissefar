@@ -13,8 +13,14 @@
 #include <system_error>
 
 #include <sys/stat.h>
+#include <chrono>
 
 namespace {
+
+std::int64_t current_unix_time() {
+  using namespace std::chrono;
+  return duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+}
 
 std::string auth_dir_from_home(const char *home) {
   return std::format("{}/.config/nissefar", home);
@@ -79,6 +85,82 @@ std::string chmod_0600(const std::string &path) {
 }
 
 } // namespace
+
+ChatGptAuthManager::ChatGptAuthManager(std::string path,
+                                       RefreshAccessTokenFn refresh_access_token,
+                                       NowFn now)
+    : path_(std::move(path)),
+      refresh_access_token_(std::move(refresh_access_token)),
+      now_(std::move(now)) {
+  if (!refresh_access_token_) {
+    refresh_access_token_ = [](const std::string &refresh_token) {
+      return chatgpt_device_auth::Client().refresh_access_token(refresh_token);
+    };
+  }
+  if (!now_) {
+    now_ = [] { return current_unix_time(); };
+  }
+}
+
+const std::string &ChatGptAuthManager::path() const { return path_; }
+
+ChatGptAuthResult ChatGptAuthManager::load() const {
+  if (path_.empty()) {
+    return {std::nullopt, {},
+            "HOME is not set; cannot resolve ~/.config/nissefar/chatgpt.json"};
+  }
+  return ChatGptAuthStore::load_from_path(path_);
+}
+
+bool ChatGptAuthManager::is_expired(const ChatGptAuth &auth, std::int64_t now,
+                                    std::int64_t refresh_skew_seconds) {
+  return auth.expires <= (now + refresh_skew_seconds);
+}
+
+ChatGptAuthRefreshResult ChatGptAuthManager::ensure_valid() {
+  std::lock_guard lock(mutex_);
+
+  const auto current = load();
+  if (!current.ok()) {
+    return {std::nullopt, current.path, current.error, false};
+  }
+
+  const std::int64_t now = now_();
+  if (!is_expired(*current.auth, now)) {
+    return {*current.auth, current.path, {}, false};
+  }
+
+  const auto refresh_result = refresh_access_token_(current.auth->refresh);
+  if (!refresh_result.ok()) {
+    return {std::nullopt, current.path,
+            std::format("Failed to refresh ChatGPT auth: {}",
+                        refresh_result.error),
+            false};
+  }
+
+  const auto &tokens = *refresh_result.tokens;
+  ChatGptAuth refreshed{.type = "oauth",
+                        .refresh = tokens.refresh_token,
+                        .access = tokens.access_token,
+                        .expires = now + std::max(tokens.expires_in, 1),
+                        .account_id = chatgpt_device_auth::extract_account_id(
+                            tokens)};
+
+  if (!refreshed.account_id.has_value()) {
+    refreshed.account_id = current.auth->account_id;
+  }
+
+  const std::string write_error =
+      ChatGptAuthStore::write_to_path(refreshed, current.path);
+  if (!write_error.empty()) {
+    return {std::nullopt, current.path,
+            std::format("Failed to persist refreshed ChatGPT auth: {}",
+                        write_error),
+            false};
+  }
+
+  return {refreshed, current.path, {}, true};
+}
 
 std::string ChatGptAuthStore::default_path() {
   const char *home = std::getenv("HOME");

@@ -40,6 +40,7 @@ add_executable(${PROJECT_NAME}
   src/SqlSafety.cpp
   src/AnalyticsQuery.cpp
   src/ChatGptAuth.cpp
+  src/ChatGptDeviceAuth.cpp
 )
 
 add_compile_definitions(DPP_CORO=ON)
@@ -154,10 +155,21 @@ add_test(NAME html_text_extract_tests COMMAND html_text_extract_tests)
 add_executable(chatgpt_auth_tests
   tests/ChatGptAuthTests.cpp
   src/ChatGptAuth.cpp
+  src/ChatGptDeviceAuth.cpp
 )
 
 target_include_directories(chatgpt_auth_tests PRIVATE
   include/
+  ${ollama_hpp_SOURCE_DIR}/include
+)
+
+target_compile_definitions(chatgpt_auth_tests PRIVATE
+  CPPHTTPLIB_OPENSSL_SUPPORT
+)
+
+target_link_libraries(chatgpt_auth_tests
+  OpenSSL::SSL
+  OpenSSL::Crypto
 )
 
 set_target_properties(chatgpt_auth_tests PROPERTIES

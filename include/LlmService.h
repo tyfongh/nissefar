@@ -2,6 +2,7 @@
 #define LLMSERVICE_H
 
 #include <Config.h>
+#include <ChatGptAuth.h>
 #include <LlmTypes.h>
 #include <dpp/dpp.h>
 #include <ollama.hpp>
@@ -19,7 +20,8 @@ public:
     std::string parameters_schema_json;
   };
 
-  LlmService(const Config &config, dpp::cluster &bot);
+  LlmService(const Config &config, dpp::cluster &bot,
+             std::shared_ptr<ChatGptAuthManager> auth_manager);
 
   std::string generate_text(const std::string &prompt,
                             const LlmImages &imagelist,
@@ -38,6 +40,7 @@ public:
 private:
   const Config &config;
   dpp::cluster &bot;
+  std::shared_ptr<ChatGptAuthManager> auth_manager;
   mutable Ollama ollama_client;
 };
 
