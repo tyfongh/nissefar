@@ -123,7 +123,7 @@ std::string LlmService::generate_text(const std::string &prompt,
   using enum GenerationType;
   switch (gen_type) {
   case TextReply:
-    opts["num_predict"] = 1000;
+    opts["num_predict"] = config.num_predict;
     system_prompt = config.system_prompt;
     if (imagelist.size() > 0) {
       model = config.vision_model;
@@ -141,7 +141,7 @@ std::string LlmService::generate_text(const std::string &prompt,
     messages.emplace_back("user", prompt);
     break;
   case ImageDescription:
-    opts["num_predict"] = 1000;
+    opts["num_predict"] = config.num_predict;
     system_prompt = config.image_description_system_prompt;
     model = config.image_description_model;
     {
@@ -197,7 +197,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
   }
 
   ollama::options opts;
-  opts["num_predict"] = 1000;
+  opts["num_predict"] = config.num_predict;
 
   ollama_tools::tools json_tools;
   for (const auto &tool : available_tools) {
@@ -233,7 +233,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
       initial_bytes += msg.dump().size();
     for (const auto &tool : json_tools)
       initial_bytes += tool.dump().size();
-    opts["num_ctx"] = estimate_num_ctx(initial_bytes, 1000);
+    opts["num_ctx"] = estimate_num_ctx(initial_bytes, config.num_predict);
     bot.log(dpp::ll_info,
             std::format("Initial num_ctx={} (estimated from {} bytes)",
                         static_cast<int>(opts["num_ctx"]), initial_bytes));
@@ -379,7 +379,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
 
       if (prompt_eval_count > 0) {
         const int new_ctx = static_cast<int>(
-            (prompt_eval_count + iteration_tool_output_bytes / 3.5 + 1000) * 1.2);
+            (prompt_eval_count + iteration_tool_output_bytes / 3.5 + config.num_predict) * 1.2);
         const int current_ctx = opts["num_ctx"].get<int>();
         if (new_ctx > current_ctx) {
           opts["num_ctx"] = new_ctx;

@@ -13,7 +13,7 @@ Config::Config()
                         std::string(""), std::string(""), std::string(""),
                         std::string(""), std::string(""), std::string(""),
                         std::string(""), std::string(""), std::string(""),
-                        std::string(""), 0, 40000);
+                        std::string(""), 0, 40000, 4000);
 
         ini::IniFile ini;
         ini.setMultiLineValues(true);
@@ -66,6 +66,15 @@ Config::Config()
           if (configured_context_size > 0) {
             context_size = configured_context_size;
           }
+        } catch (...) {
+        }
+
+        int num_predict = 4000;
+
+        try {
+          int v = ini["General"]["num_predict"].as<int>();
+          if (v > 0)
+            num_predict = v;
         } catch (...) {
         }
 
@@ -154,7 +163,7 @@ Config::Config()
                         text_model, comparison_model, vision_model,
                         image_description_model, ollama_server_url,
                         db_connection_string, video_summary_script_path,
-                        max_history, context_size, rate_limit_count,
+                        max_history, context_size, num_predict, rate_limit_count,
                         rate_limit_window_seconds, youtube_summary_bot_id,
                         youtube_summary_channel_id, owner_id,
                         allowed_channels, youtube_skip_channel_names);
@@ -169,7 +178,7 @@ Config::Config(bool valid, std::string discord_token,
                std::string ollama_server_url,
                std::string db_connection_string,
                std::string video_summary_script_path, int max_history,
-               int context_size, int rate_limit_count,
+               int context_size, int num_predict, int rate_limit_count,
                int rate_limit_window_seconds,
                std::string youtube_summary_bot_id,
                std::string youtube_summary_channel_id,
@@ -180,6 +189,7 @@ Config::Config(bool valid, std::string discord_token,
       google_api_key(std::move(google_api_key)),
       max_history(max_history),
       context_size(context_size),
+      num_predict(num_predict),
       rate_limit_count(rate_limit_count),
       rate_limit_window_seconds(rate_limit_window_seconds),
       system_prompt(std::move(system_prompt)),

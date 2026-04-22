@@ -31,7 +31,6 @@ make_chat_request(const std::string &model, const ollama::messages &messages,
                   const std::string &keep_alive_duration = "5m") {
   ollama::request request(model, messages, options, stream, "json",
                           keep_alive_duration);
-  request["think"] = false;
   if (!available_tools.empty())
     request["tools"] = available_tools;
   return request;

@@ -11,6 +11,7 @@ public:
   const std::string google_api_key;
   const int max_history;
   const int context_size;
+  const int num_predict;
   const int rate_limit_count;
   const int rate_limit_window_seconds;
 
@@ -45,7 +46,7 @@ public:
           std::string image_description_model, std::string ollama_server_url,
           std::string db_connection_string,
           std::string video_summary_script_path, int max_history,
-          int context_size, int rate_limit_count = 3,
+          int context_size, int num_predict = 4000, int rate_limit_count = 3,
           int rate_limit_window_seconds = 300,
           std::string youtube_summary_bot_id = {},
           std::string youtube_summary_channel_id = {},
