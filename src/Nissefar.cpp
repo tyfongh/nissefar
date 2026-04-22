@@ -1,6 +1,7 @@
 #include <Database.h>
 #include <DiscordEventService.h>
 #include <CalculationService.h>
+#include <ChatGptAuth.h>
 #include <GoogleDocsService.h>
 #include <LlmService.h>
 #include <Nissefar.h>
@@ -11,8 +12,19 @@
 #include <stdexcept>
 
 Nissefar::Nissefar() {
-  if (!config.is_valid)
-    throw std::runtime_error("Configuration is invalid");
+  if (!config.is_valid) {
+    throw std::runtime_error(config.validation_error.empty()
+                                 ? "Configuration is invalid"
+                                 : config.validation_error);
+  }
+
+  const auto auth_result = ChatGptAuthStore::load();
+  if (!auth_result.ok()) {
+    throw std::runtime_error(auth_result.error.empty()
+                                 ? "ChatGPT auth is invalid"
+                                 : auth_result.error);
+  }
+  auth = *auth_result.auth;
 
   bot = std::make_unique<dpp::cluster>(
       config.discord_token, dpp::i_default_intents | dpp::i_message_content);
@@ -22,7 +34,9 @@ Nissefar::Nissefar() {
   // Allow for some minutes of LLM generation
 
   bot->log(dpp::ll_info,
-           std::format("Ollama server url: {}", config.ollama_server_url));
+           std::format("ChatGPT model: {}", config.chatgpt_model));
+  bot->log(dpp::ll_info,
+           std::format("ChatGPT auth file: {}", auth_result.path));
   bot->log(dpp::ll_info,
            std::format("LLM context size: {}", config.context_size));
 

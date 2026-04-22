@@ -39,11 +39,13 @@ add_executable(${PROJECT_NAME}
   src/Formatting.cpp
   src/SqlSafety.cpp
   src/AnalyticsQuery.cpp
+  src/ChatGptAuth.cpp
 )
 
 add_compile_definitions(DPP_CORO=ON)
 
 find_package(DPP REQUIRED)
+find_package(OpenSSL REQUIRED)
 find_library(PQXX_LIB pqxx)
 find_library(PQ_LIB pq)
 
@@ -51,7 +53,11 @@ target_link_libraries(${PROJECT_NAME}
   ${DPP_LIBRARIES}
   ${PQXX_LIB}
   ${PQ_LIB}
+  OpenSSL::SSL
+  OpenSSL::Crypto
 )
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
   include/
@@ -144,6 +150,73 @@ set_target_properties(html_text_extract_tests PROPERTIES
 )
 
 add_test(NAME html_text_extract_tests COMMAND html_text_extract_tests)
+
+add_executable(chatgpt_auth_tests
+  tests/ChatGptAuthTests.cpp
+  src/ChatGptAuth.cpp
+)
+
+target_include_directories(chatgpt_auth_tests PRIVATE
+  include/
+)
+
+set_target_properties(chatgpt_auth_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME chatgpt_auth_tests COMMAND chatgpt_auth_tests)
+
+add_executable(chatgpt_device_auth_tests
+  tests/ChatGptDeviceAuthTests.cpp
+  src/ChatGptDeviceAuth.cpp
+)
+
+target_include_directories(chatgpt_device_auth_tests PRIVATE
+  include/
+  ${ollama_hpp_SOURCE_DIR}/include
+)
+
+target_compile_definitions(chatgpt_device_auth_tests PRIVATE
+  CPPHTTPLIB_OPENSSL_SUPPORT
+)
+
+target_link_libraries(chatgpt_device_auth_tests
+  OpenSSL::SSL
+  OpenSSL::Crypto
+)
+
+set_target_properties(chatgpt_device_auth_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME chatgpt_device_auth_tests COMMAND chatgpt_device_auth_tests)
+
+add_executable(nissefar-chatgpt-auth
+  src/chatgpt_auth_main.cpp
+  src/ChatGptAuth.cpp
+  src/ChatGptDeviceAuth.cpp
+)
+
+target_include_directories(nissefar-chatgpt-auth PRIVATE
+  include/
+  ${ollama_hpp_SOURCE_DIR}/include
+)
+
+target_compile_definitions(nissefar-chatgpt-auth PRIVATE
+  CPPHTTPLIB_OPENSSL_SUPPORT
+)
+
+target_link_libraries(nissefar-chatgpt-auth
+  OpenSSL::SSL
+  OpenSSL::Crypto
+)
+
+set_target_properties(nissefar-chatgpt-auth PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
 
 add_executable(diff_util_tests
   tests/DiffUtilTests.cpp

@@ -12,14 +12,27 @@ Config::Config()
           return Config(false, std::string(""), std::string(""),
                         std::string(""), std::string(""), std::string(""),
                         std::string(""), std::string(""), std::string(""),
-                        std::string(""), std::string(""), std::string(""),
-                        std::string(""), 0, 40000, 4000);
+                        0, 40000, 4000, 3, 300,
+                        "HOME is not set; cannot resolve ~/.config/nissefar/config.ini");
 
         ini::IniFile ini;
         ini.setMultiLineValues(true);
-        ini.load(std::format("{}/.config/nissefar/config.ini", home));
+        const std::string config_path =
+            std::format("{}/.config/nissefar/config.ini", home);
+
+        try {
+          ini.load(config_path);
+        } catch (const std::exception &e) {
+          return Config(false, std::string(""), std::string(""),
+                        std::string(""), std::string(""), std::string(""),
+                        std::string(""), std::string(""), std::string(""),
+                        0, 40000, 4000, 3, 300,
+                        std::format("Failed to load config file {}: {}", config_path,
+                                    e.what()));
+        }
 
         bool valid = true;
+        std::string validation_error;
 
         std::string discord_token =
             ini["General"]["discord_token"].as<std::string>();
@@ -31,22 +44,7 @@ Config::Config()
             ini["General"]["diff_system_prompt"].as<std::string>();
         std::string image_description_system_prompt =
             ini["General"]["image_description_system_prompt"].as<std::string>();
-        std::string text_model = ini["General"]["text_model"].as<std::string>();
-        std::string comparison_model =
-            ini["General"]["comparison_model"].as<std::string>();
-        std::string vision_model =
-            ini["General"]["vision_model"].as<std::string>();
-        std::string image_description_model =
-            ini["General"]["image_description_model"].as<std::string>();
-        std::string ollama_server_url = "http://localhost:11434";
-
-        try {
-          std::string configured_url =
-              ini["General"]["ollama_server_url"].as<std::string>();
-          if (!configured_url.empty())
-            ollama_server_url = configured_url;
-        } catch (...) {
-        }
+        std::string chatgpt_model = ini["General"]["chatgpt_model"].as<std::string>();
 
         std::string db_connection_string =
             ini["Database"]["db_connection_string"].as<std::string>();
@@ -153,18 +151,27 @@ Config::Config()
 
         if (discord_token.empty() || google_api_key.empty() ||
             system_prompt.empty() || diff_system_prompt.empty() ||
-            text_model.empty() || comparison_model.empty() ||
-            vision_model.empty() || image_description_model.empty() ||
+            image_description_system_prompt.empty() || chatgpt_model.empty() ||
             db_connection_string.empty() || max_history == 0)
           valid = false;
 
+        if (!valid) {
+          validation_error =
+              "Configuration is invalid. Required keys: General.discord_token, "
+              "General.google_api_key, General.system_prompt, "
+              "General.diff_system_prompt, "
+              "General.image_description_system_prompt, "
+              "General.chatgpt_model, Database.db_connection_string, "
+              "General.max_history.";
+        }
+
         return Config(valid, discord_token, google_api_key, system_prompt,
                         diff_system_prompt, image_description_system_prompt,
-                        text_model, comparison_model, vision_model,
-                        image_description_model, ollama_server_url,
+                        chatgpt_model,
                         db_connection_string, video_summary_script_path,
                         max_history, context_size, num_predict, rate_limit_count,
-                        rate_limit_window_seconds, youtube_summary_bot_id,
+                        rate_limit_window_seconds, validation_error,
+                        youtube_summary_bot_id,
                         youtube_summary_channel_id, owner_id,
                         allowed_channels, youtube_skip_channel_names);
       }()) {}
@@ -173,13 +180,12 @@ Config::Config(bool valid, std::string discord_token,
                std::string google_api_key, std::string system_prompt,
                std::string diff_system_prompt,
                std::string image_description_system_prompt,
-               std::string text_model, std::string comparison_model,
-               std::string vision_model, std::string image_description_model,
-               std::string ollama_server_url,
+               std::string chatgpt_model,
                std::string db_connection_string,
                std::string video_summary_script_path, int max_history,
                int context_size, int num_predict, int rate_limit_count,
                int rate_limit_window_seconds,
+               std::string validation_error,
                std::string youtube_summary_bot_id,
                std::string youtube_summary_channel_id,
                std::string owner_id,
@@ -196,13 +202,10 @@ Config::Config(bool valid, std::string discord_token,
       diff_system_prompt(std::move(diff_system_prompt)),
       image_description_system_prompt(
           std::move(image_description_system_prompt)),
-      text_model(std::move(text_model)),
-      comparison_model(std::move(comparison_model)),
-      vision_model(std::move(vision_model)),
-      image_description_model(std::move(image_description_model)),
-      ollama_server_url(std::move(ollama_server_url)),
+      chatgpt_model(std::move(chatgpt_model)),
       db_connection_string(std::move(db_connection_string)),
       video_summary_script_path(std::move(video_summary_script_path)),
+      validation_error(std::move(validation_error)),
       youtube_summary_bot_id(std::move(youtube_summary_bot_id)),
       youtube_summary_channel_id(std::move(youtube_summary_channel_id)),
       owner_id(std::move(owner_id)),

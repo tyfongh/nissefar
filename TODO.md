@@ -80,117 +80,117 @@ Important runtime headers:
 ## Phase 2: Config Migration
 
 ### 2.1 Update config model
-- [ ] Add `chatgpt_model`
-- [ ] Default/target value: `gpt-5.4`
-- [ ] Remove or stop requiring:
-  - [ ] `text_model`
-  - [ ] `comparison_model`
-  - [ ] `vision_model`
-  - [ ] `image_description_model`
-  - [ ] `ollama_server_url`
-- [ ] Preserve:
-  - [ ] `system_prompt`
-  - [ ] `diff_system_prompt`
-  - [ ] `image_description_system_prompt`
+- [x] Add `chatgpt_model`
+- [x] Default/target value: `gpt-5.4`
+- [x] Remove or stop requiring:
+  - [x] `text_model`
+  - [x] `comparison_model`
+  - [x] `vision_model`
+  - [x] `image_description_model`
+  - [x] `ollama_server_url`
+- [x] Preserve:
+  - [x] `system_prompt`
+  - [x] `diff_system_prompt`
+  - [x] `image_description_system_prompt`
 
 ### 2.2 Update config validation
-- [ ] Make `chatgpt_model` required
-- [ ] Remove Ollama URL validation
-- [ ] Ensure startup clearly fails on invalid config
+- [x] Make `chatgpt_model` required
+- [x] Remove Ollama URL validation
+- [x] Ensure startup clearly fails on invalid config
 
 ### 2.3 Update startup logging
-- [ ] Remove `Ollama server url` log line from `src/Nissefar.cpp`
-- [ ] Add ChatGPT/Codex relevant startup logging if useful
-- [ ] Keep logging free of secrets/tokens
+- [x] Remove `Ollama server url` log line from `src/Nissefar.cpp`
+- [x] Add ChatGPT/Codex relevant startup logging if useful
+- [x] Keep logging free of secrets/tokens
 
 ### 2.4 Update documentation
-- [ ] Update `CLAUDE.md`
-- [ ] Update any config examples
-- [ ] Document `chatgpt_model = gpt-5.4`
-- [ ] Document `chatgpt.json` requirement
+- [x] Update setup docs (`CONFIGURATION.md`; `CLAUDE.md` was removed)
+- [x] Update any config examples
+- [x] Document `chatgpt_model = gpt-5.4`
+- [x] Document `chatgpt.json` requirement
 
 ## Phase 3: Auth Storage
 
 ### 3.1 Define auth file schema
-- [ ] Create local auth types matching intended file structure
-- [ ] Required fields:
-  - [ ] `type = "oauth"`
-  - [ ] `refresh`
-  - [ ] `access`
-  - [ ] `expires`
-- [ ] Optional fields:
-  - [ ] `accountId`
+- [x] Create local auth types matching intended file structure
+- [x] Required fields:
+  - [x] `type = "oauth"`
+  - [x] `refresh`
+  - [x] `access`
+  - [x] `expires`
+- [x] Optional fields:
+  - [x] `accountId`
 
 ### 3.2 Implement auth file path logic
-- [ ] Resolve `$HOME/.config/nissefar/chatgpt.json`
-- [ ] Handle missing `$HOME`
-- [ ] Handle missing config directory
-- [ ] Ensure file writes use `0600`
+- [x] Resolve `$HOME/.config/nissefar/chatgpt.json`
+- [x] Handle missing `$HOME`
+- [x] Handle missing config directory
+- [x] Ensure file writes use `0600`
 
 ### 3.3 Implement auth store
-- [ ] Read auth file
-- [ ] Parse and validate JSON
-- [ ] Write auth file atomically if possible
-- [ ] Fail clearly on malformed file
-- [ ] Avoid logging secrets
+- [x] Read auth file
+- [x] Parse and validate JSON
+- [x] Write auth file atomically if possible
+- [x] Fail clearly on malformed file
+- [x] Avoid logging secrets
 
 ### 3.4 Startup enforcement
-- [ ] Make bot startup fail if auth file is missing
-- [ ] Make bot startup fail if auth file is malformed
-- [ ] Make bot startup fail if required fields are missing
+- [x] Make bot startup fail if auth file is missing
+- [x] Make bot startup fail if auth file is malformed
+- [x] Make bot startup fail if required fields are missing
 
 ## Phase 4: Device-Code Login CLI
 
 ### 4.1 Add separate executable
-- [ ] Create a new CLI target in `CMakeLists.txt`
-- [ ] Pick executable name
-- [ ] Keep it fully separate from bot startup path
+- [x] Create a new CLI target in `CMakeLists.txt`
+- [x] Pick executable name
+- [x] Keep it fully separate from bot startup path
 
 ### 4.2 Implement device-code start request
-- [ ] `POST /api/accounts/deviceauth/usercode`
-- [ ] Send required `client_id`
-- [ ] Parse:
-  - [ ] `device_auth_id`
-  - [ ] `user_code`
-  - [ ] `interval`
+- [x] `POST /api/accounts/deviceauth/usercode`
+- [x] Send required `client_id`
+- [x] Parse:
+  - [x] `device_auth_id`
+  - [x] `user_code`
+  - [x] `interval`
 
 ### 4.3 Implement user-facing CLI flow
-- [ ] Print verification URL:
-  - [ ] `https://auth.openai.com/codex/device`
-- [ ] Print user code clearly
-- [ ] Print polling progress
-- [ ] Print success/failure states
+- [x] Print verification URL:
+  - [x] `https://auth.openai.com/codex/device`
+- [x] Print user code clearly
+- [x] Print polling progress
+- [x] Print success/failure states
 
 ### 4.4 Implement device polling
-- [ ] Poll `POST /api/accounts/deviceauth/token`
-- [ ] Respect returned interval if available
-- [ ] Handle pending/slow authorization states
-- [ ] Handle timeout/cancellation cleanly
+- [x] Poll `POST /api/accounts/deviceauth/token`
+- [x] Respect returned interval if available
+- [x] Handle pending/slow authorization states
+- [x] Handle timeout/cancellation cleanly
 
 ### 4.5 Implement token exchange
-- [ ] Exchange authorization code at `POST /oauth/token`
-- [ ] Send required fields:
-  - [ ] `grant_type=authorization_code`
-  - [ ] `code`
-  - [ ] `redirect_uri=https://auth.openai.com/deviceauth/callback`
-  - [ ] `client_id`
-  - [ ] `code_verifier`
-- [ ] Parse:
-  - [ ] `access_token`
-  - [ ] `refresh_token`
-  - [ ] `expires_in`
-  - [ ] `id_token` if present
+- [x] Exchange authorization code at `POST /oauth/token`
+- [x] Send required fields:
+  - [x] `grant_type=authorization_code`
+  - [x] `code`
+  - [x] `redirect_uri=https://auth.openai.com/deviceauth/callback`
+  - [x] `client_id`
+  - [x] `code_verifier`
+- [x] Parse:
+  - [x] `access_token`
+  - [x] `refresh_token`
+  - [x] `expires_in`
+  - [x] `id_token` if present
 
 ### 4.6 Extract account ID
-- [ ] Parse JWT claims from `id_token`
-- [ ] Fallback to `access_token` claims if needed
-- [ ] Extract `chatgpt_account_id` or equivalent claim path
-- [ ] Store `accountId` when available
+- [x] Parse JWT claims from `id_token`
+- [x] Fallback to `access_token` claims if needed
+- [x] Extract `chatgpt_account_id` or equivalent claim path
+- [x] Store `accountId` when available
 
 ### 4.7 Persist auth
-- [ ] Write final `chatgpt.json`
-- [ ] Confirm `0600`
-- [ ] Avoid printing secrets after completion
+- [x] Write final `chatgpt.json`
+- [x] Confirm `0600`
+- [x] Avoid printing secrets after completion
 
 ## Phase 5: Bot-Side Token Refresh
 

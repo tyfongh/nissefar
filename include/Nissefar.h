@@ -2,6 +2,7 @@
 #define NISSEFAR_H
 
 #include <Config.h>
+#include <ChatGptAuth.h>
 #include <Domain.h>
 #include <chrono>
 #include <dpp/dpp.h>
@@ -22,6 +23,7 @@ private:
   // variables
 
   Config config{};
+  ChatGptAuth auth{};
   std::unique_ptr<dpp::cluster> bot;
   std::unique_ptr<LlmService> llm_service;
   std::unique_ptr<DiscordEventService> discord_event_service;

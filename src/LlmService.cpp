@@ -96,7 +96,7 @@ std::string tool_call_names_for_log(const ollama::response &response) {
 } // namespace
 
 LlmService::LlmService(const Config &config, dpp::cluster &bot)
-    : config(config), bot(bot), ollama_client(config.ollama_server_url) {
+    : config(config), bot(bot), ollama_client("http://localhost:11434") {
   ollama_client.setReadTimeout(360);
   ollama_client.setWriteTimeout(360);
 }
@@ -134,25 +134,24 @@ std::string LlmService::generate_text(const std::string &prompt,
   case TextReply:
     opts["num_predict"] = config.num_predict;
     system_prompt = config.system_prompt;
+    model = config.chatgpt_model;
     if (imagelist.size() > 0) {
-      model = config.vision_model;
       ollama::message user_message("user", prompt);
       user_message["images"] = ollama_imagelist;
       messages.push_back(user_message);
     } else {
-      model = config.text_model;
       messages.emplace_back("user", prompt);
     }
     break;
   case Diff:
     system_prompt = config.diff_system_prompt;
-    model = config.comparison_model;
+    model = config.chatgpt_model;
     messages.emplace_back("user", prompt);
     break;
   case ImageDescription:
     opts["num_predict"] = config.num_predict;
     system_prompt = config.image_description_system_prompt;
-    model = config.image_description_model;
+    model = config.chatgpt_model;
     {
       ollama::message user_message("user", prompt);
       user_message["images"] = ollama_imagelist;
@@ -223,7 +222,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
         tool.name, tool.description, parameters));
   }
 
-  const std::string model = imagelist.empty() ? config.text_model : config.vision_model;
+  const std::string model = config.chatgpt_model;
   ollama::messages messages;
   messages.emplace_back("system", config.system_prompt);
 
