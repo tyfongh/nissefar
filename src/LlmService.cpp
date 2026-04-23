@@ -1,58 +1,35 @@
 #include <LlmService.h>
-#include <OllamaToolCalling.h>
 
+#include <array>
 #include <unordered_set>
 
 namespace {
 
-ollama::images to_ollama_images(const LlmImages &imagelist) {
-  ollama::images ollama_imagelist;
-  ollama_imagelist.reserve(imagelist.size());
-  for (const auto &image : imagelist) {
-    ollama_imagelist.emplace_back(image);
-  }
-  return ollama_imagelist;
-}
+std::string encode_base64(const std::string &input) {
+  static constexpr std::array<char, 64> kAlphabet = {
+      'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N',
+      'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b',
+      'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p',
+      'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3',
+      '4', '5', '6', '7', '8', '9', '+', '/'};
 
-std::string response_to_text(const ollama::response &response) {
-  const auto payload = response.as_json();
+  std::string output;
+  output.reserve(((input.size() + 2) / 3) * 4);
 
-  if (payload.contains("message") && payload["message"].is_object()) {
-    const auto &message = payload["message"];
-    if (message.contains("content")) {
-      if (message["content"].is_string()) {
-        return message["content"].get<std::string>();
-      }
-      if (!message["content"].is_null()) {
-        return message["content"].dump();
-      }
-    }
-  }
+  for (std::size_t i = 0; i < input.size(); i += 3) {
+    const unsigned char a = static_cast<unsigned char>(input[i]);
+    const bool has_b = i + 1 < input.size();
+    const bool has_c = i + 2 < input.size();
+    const unsigned char b = has_b ? static_cast<unsigned char>(input[i + 1]) : 0;
+    const unsigned char c = has_c ? static_cast<unsigned char>(input[i + 2]) : 0;
 
-  if (payload.contains("response") && payload["response"].is_string()) {
-    return payload["response"].get<std::string>();
+    output.push_back(kAlphabet[a >> 2]);
+    output.push_back(kAlphabet[((a & 0x03) << 4) | (b >> 4)]);
+    output.push_back(has_b ? kAlphabet[((b & 0x0F) << 2) | (c >> 6)] : '=');
+    output.push_back(has_c ? kAlphabet[c & 0x3F] : '=');
   }
 
-  return payload.dump();
-}
-
-std::string response_shape(const ollama::response &response) {
-  const auto payload = response.as_json();
-  if (!payload.contains("message") || !payload["message"].is_object()) {
-    return "missing message object";
-  }
-
-  const auto &message = payload["message"];
-  if (!message.contains("content")) {
-    return "message without content";
-  }
-
-  return std::format("message.content type={}", message["content"].type_name());
-}
-
-int estimate_num_ctx(std::size_t input_bytes, int num_predict) {
-  const int ctx = static_cast<int>(input_bytes / 3.5 * 1.2) + num_predict;
-  return std::max(ctx, 2048);
+  return output;
 }
 
 std::string truncate_for_log(std::string value, std::size_t max_size) {
@@ -65,32 +42,93 @@ std::string truncate_for_log(std::string value, std::size_t max_size) {
   return value;
 }
 
-std::string tool_call_names_for_log(const ollama::response &response) {
-  if (!ollama_tools::has_tool_calls(response)) {
+Json codex_tools_from_definitions(
+    const std::vector<LlmService::ToolDefinition> &available_tools) {
+  Json tools = Json::array();
+  for (const auto &tool : available_tools) {
+    Json parameters = Json{{"type", "object"}, {"properties", Json::object()}};
+    if (!tool.parameters_schema_json.empty()) {
+      try {
+        parameters = Json::parse(tool.parameters_schema_json);
+      } catch (...) {
+      }
+    }
+
+    tools.push_back(Json{{"type", "function"},
+                         {"name", tool.name},
+                         {"description", tool.description},
+                         {"parameters", std::move(parameters)}});
+  }
+  return tools;
+}
+
+std::string tool_schema_sizes_for_log(
+    const std::vector<LlmService::ToolDefinition> &available_tools) {
+  std::string result = "[";
+  bool first = true;
+
+  for (const auto &tool : available_tools) {
+    if (!first) {
+      result += ", ";
+    }
+    first = false;
+    result += std::format("{}:{}", tool.name, tool.parameters_schema_json.size());
+  }
+
+  result += "]";
+  return result;
+}
+
+std::string tool_call_names_for_log(const LlmResponse &response) {
+  if (response.tool_calls.empty()) {
     return "[]";
   }
 
   std::string names = "[";
   bool first = true;
 
-  for (const auto &tool_call : ollama_tools::tool_calls(response)) {
-    std::string tool_name = "unknown_tool";
-    if (tool_call.contains("function") && tool_call["function"].is_object()) {
-      const auto &fn = tool_call["function"];
-      if (fn.contains("name") && fn["name"].is_string()) {
-        tool_name = fn["name"].get<std::string>();
-      }
-    }
-
+  for (const auto &tool_call : response.tool_calls) {
     if (!first) {
       names += ", ";
     }
     first = false;
-    names += tool_name;
+    names += tool_call.name;
   }
 
   names += "]";
   return names;
+}
+
+std::string join_instructions(const std::string &base,
+                              const std::string &suffix) {
+  if (suffix.empty()) {
+    return base;
+  }
+  return std::format("{}\n\n{}", base, suffix);
+}
+
+std::string system_prompt_for_type(const Config &config,
+                                   LlmService::GenerationType gen_type) {
+  using enum LlmService::GenerationType;
+
+  switch (gen_type) {
+  case TextReply:
+    return config.system_prompt;
+  case Diff:
+    return config.diff_system_prompt;
+  case ImageDescription:
+    return config.image_description_system_prompt;
+  }
+
+  return config.system_prompt;
+}
+
+std::size_t request_payload_bytes(const CodexRequest &request) {
+  return CodexClient::build_request_json(request).dump().size();
+}
+
+Json codex_image_generation_tool() {
+  return Json::array({Json{{"type", "image_generation"}}});
 }
 
 } // namespace
@@ -98,10 +136,7 @@ std::string tool_call_names_for_log(const ollama::response &response) {
 LlmService::LlmService(const Config &config, dpp::cluster &bot,
                        std::shared_ptr<ChatGptAuthManager> auth_manager)
     : config(config), bot(bot), auth_manager(std::move(auth_manager)),
-      ollama_client("http://localhost:11434") {
-  ollama_client.setReadTimeout(360);
-  ollama_client.setWriteTimeout(360);
-}
+      codex_client("nissefar/0.1") {}
 
 dpp::task<LlmImages> LlmService::generate_images(
     std::vector<dpp::attachment> attachments) const {
@@ -114,7 +149,9 @@ dpp::task<LlmImages> LlmService::generate_images(
           co_await bot.co_request(attachment.url, dpp::m_get);
       bot.log(dpp::ll_info,
               std::format("Image size: {}", attachment_data.body.size()));
-      imagelist.push_back(macaron::Base64::Encode(std::string(attachment_data.body)));
+      imagelist.push_back(LlmImage{.mime_type = attachment.content_type,
+                                   .base64_data =
+                                       encode_base64(std::string(attachment_data.body))});
     }
   }
   co_return imagelist;
@@ -123,80 +160,51 @@ dpp::task<LlmImages> LlmService::generate_images(
 std::string LlmService::generate_text(const std::string &prompt,
                                       const LlmImages &imagelist,
                                       GenerationType gen_type) const {
-  if (auth_manager) {
-    const auto auth_result = auth_manager->ensure_valid();
-    if (!auth_result.ok()) {
-      bot.log(dpp::ll_error,
-              std::format("ChatGPT auth failure before generation: {}",
-                          auth_result.error));
-      return "Unable to authenticate with ChatGPT right now.";
-    }
+  if (!auth_manager) {
+    bot.log(dpp::ll_error, "ChatGPT auth manager is not configured.");
+    return "Unable to authenticate with ChatGPT right now.";
   }
 
-  ollama::options opts;
-  std::string model;
-  std::string system_prompt;
-  ollama::messages messages;
-  const ollama::images ollama_imagelist = to_ollama_images(imagelist);
-
-  opts["num_ctx"] = config.context_size;
-
-  using enum GenerationType;
-  switch (gen_type) {
-  case TextReply:
-    opts["num_predict"] = config.num_predict;
-    system_prompt = config.system_prompt;
-    model = config.chatgpt_model;
-    if (imagelist.size() > 0) {
-      ollama::message user_message("user", prompt);
-      user_message["images"] = ollama_imagelist;
-      messages.push_back(user_message);
-    } else {
-      messages.emplace_back("user", prompt);
-    }
-    break;
-  case Diff:
-    system_prompt = config.diff_system_prompt;
-    model = config.chatgpt_model;
-    messages.emplace_back("user", prompt);
-    break;
-  case ImageDescription:
-    opts["num_predict"] = config.num_predict;
-    system_prompt = config.image_description_system_prompt;
-    model = config.chatgpt_model;
-    {
-      ollama::message user_message("user", prompt);
-      user_message["images"] = ollama_imagelist;
-      messages.push_back(user_message);
-    }
-    break;
+  const auto auth_result = auth_manager->ensure_valid();
+  if (!auth_result.ok()) {
+    bot.log(dpp::ll_error,
+            std::format("ChatGPT auth failure before generation: {}",
+                        auth_result.error));
+    return "Unable to authenticate with ChatGPT right now.";
   }
 
-  messages.insert(messages.begin(), ollama::message("system", system_prompt));
+  const std::string system_prompt = system_prompt_for_type(config, gen_type);
+  const CodexRequest request{.model = config.chatgpt_model,
+                             .instructions = system_prompt,
+                             .messages = {LlmMessage{.role = "user",
+                                                     .content = prompt,
+                                                     .images = imagelist}}};
 
   std::string answer{};
   try {
-    const bool use_generate_endpoint =
-        (gen_type == GenerationType::ImageDescription) ||
-        (gen_type == GenerationType::TextReply && !imagelist.empty());
-
-    if (use_generate_endpoint) {
-      ollama::request request(model, prompt, opts, false, ollama_imagelist);
-      request["system"] = system_prompt;
-      const ollama::response response = ollama_client.generate(request);
-      answer = response_to_text(response);
-    } else {
-      ollama::request request(model, messages, opts, false);
-      const ollama::response response = ollama_client.chat(request);
-      answer = response_to_text(response);
+    bot.log(dpp::ll_info,
+            std::format("Codex plain request mode={} prompt_bytes={} images={} payload_bytes={}",
+                        static_cast<int>(gen_type), prompt.size(), imagelist.size(),
+                        request_payload_bytes(request)));
+    const auto result = codex_client.create_response(*auth_result.auth, request);
+    if (!result.ok()) {
+      bot.log(dpp::ll_error,
+              std::format("ChatGPT generation failed for mode={} prompt_bytes={} images={}: {}",
+                          static_cast<int>(gen_type), prompt.size(), imagelist.size(),
+                          result.error));
+      return "I had trouble finishing that request right now.";
     }
-  } catch (ollama::exception e) {
-    answer = std::format("Exception running llm: {}", e.what());
+
+    answer = result.response->text;
   } catch (const std::exception &e) {
-    answer = std::format("Exception running llm: {}", e.what());
+    bot.log(dpp::ll_error,
+            std::format("Exception running ChatGPT generation for mode={} prompt_bytes={} images={}: {}",
+                        static_cast<int>(gen_type), prompt.size(), imagelist.size(),
+                        e.what()));
+    return "I had trouble finishing that request right now.";
   }
 
-  if (gen_type == ImageDescription) {
+  if (gen_type == GenerationType::ImageDescription) {
     bot.log(dpp::ll_info, std::format("Got image description: {}", answer));
   }
 
@@ -204,6 +212,58 @@ std::string LlmService::generate_text(const std::string &prompt,
     answer.resize(1800);
 
   return answer;
+}
+
+std::optional<LlmGeneratedImage>
+LlmService::generate_image(const std::string &prompt,
+                           const LlmImages &imagelist) const {
+  if (!auth_manager) {
+    bot.log(dpp::ll_error, "ChatGPT auth manager is not configured.");
+    return std::nullopt;
+  }
+
+  const auto auth_result = auth_manager->ensure_valid();
+  if (!auth_result.ok()) {
+    bot.log(dpp::ll_error,
+            std::format("ChatGPT auth failure before image generation: {}",
+                        auth_result.error));
+    return std::nullopt;
+  }
+
+  const CodexRequest request{.model = config.chatgpt_model,
+                             .instructions = "Generate or edit an image that matches the user's request.",
+                             .messages = {LlmMessage{.role = "user",
+                                                     .content = prompt,
+                                                     .images = imagelist}},
+                             .tools = codex_image_generation_tool(),
+                             .tool_choice = Json{{"type", "image_generation"}}};
+
+  try {
+    bot.log(dpp::ll_info,
+            std::format("Codex image request prompt_bytes={} images={} payload_bytes={}",
+                        prompt.size(), imagelist.size(), request_payload_bytes(request)));
+    const auto result = codex_client.create_response(*auth_result.auth, request);
+    if (!result.ok()) {
+      bot.log(dpp::ll_error,
+              std::format("ChatGPT image generation failed for prompt_bytes={} images={}: {}",
+                          prompt.size(), imagelist.size(), result.error));
+      return std::nullopt;
+    }
+
+    if (result.response->generated_images.empty()) {
+      bot.log(dpp::ll_warning,
+              std::format("Codex image request returned no image output items payload={} ",
+                          truncate_for_log(result.response->output_items.dump(), 600)));
+      return std::nullopt;
+    }
+
+    return result.response->generated_images.front();
+  } catch (const std::exception &e) {
+    bot.log(dpp::ll_error,
+            std::format("Exception running ChatGPT image generation for prompt_bytes={} images={}: {}",
+                        prompt.size(), imagelist.size(), e.what()));
+    return std::nullopt;
+  }
 }
 
 dpp::task<std::string> LlmService::generate_text_with_tools(
@@ -216,58 +276,25 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
     co_return generate_text(prompt, imagelist, GenerationType::TextReply);
   }
 
-  if (auth_manager) {
-    const auto auth_result = auth_manager->ensure_valid();
-    if (!auth_result.ok()) {
-      bot.log(dpp::ll_error,
-              std::format("ChatGPT auth failure before tool generation: {}",
-                          auth_result.error));
-      co_return "Unable to authenticate with ChatGPT right now.";
-    }
+  if (!auth_manager) {
+    bot.log(dpp::ll_error, "ChatGPT auth manager is not configured.");
+    co_return "Unable to authenticate with ChatGPT right now.";
   }
 
-  ollama::options opts;
-  opts["num_predict"] = config.num_predict;
-  const ollama::images ollama_imagelist = to_ollama_images(imagelist);
-
-  ollama_tools::tools json_tools;
-  for (const auto &tool : available_tools) {
-    Json parameters = Json{{"type", "object"}, {"properties", Json::object()}};
-    if (!tool.parameters_schema_json.empty()) {
-      try {
-        parameters = Json::parse(tool.parameters_schema_json);
-      } catch (...) {
-      }
-    }
-
-    json_tools.push_back(ollama_tools::make_function_tool(
-        tool.name, tool.description, parameters));
+  const auto initial_auth = auth_manager->ensure_valid();
+  if (!initial_auth.ok()) {
+    bot.log(dpp::ll_error,
+            std::format("ChatGPT auth failure before tool generation: {}",
+                        initial_auth.error));
+    co_return "Unable to authenticate with ChatGPT right now.";
   }
 
+  const Json json_tools = codex_tools_from_definitions(available_tools);
   const std::string model = config.chatgpt_model;
-  ollama::messages messages;
-  messages.emplace_back("system", config.system_prompt);
-
-  if (!imagelist.empty()) {
-    ollama::message user_message("user", prompt);
-    user_message["images"] = ollama_imagelist;
-    messages.push_back(user_message);
-  } else {
-    messages.emplace_back("user", prompt);
-  }
-
-  // Estimate initial num_ctx from serialized content size
-  {
-    std::size_t initial_bytes = 0;
-    for (const auto &msg : messages)
-      initial_bytes += msg.dump().size();
-    for (const auto &tool : json_tools)
-      initial_bytes += tool.dump().size();
-    opts["num_ctx"] = estimate_num_ctx(initial_bytes, config.num_predict);
-    bot.log(dpp::ll_info,
-            std::format("Initial num_ctx={} (estimated from {} bytes)",
-                        static_cast<int>(opts["num_ctx"]), initial_bytes));
-  }
+  const std::vector<LlmMessage> initial_messages = {
+      LlmMessage{.role = "user", .content = prompt, .images = {}}};
+  Json accumulated_items = Json::array();
+  std::string instruction_suffix;
 
   std::string answer{};
   bool tool_calling_failed = false;
@@ -284,84 +311,76 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
   try {
     bot.log(dpp::ll_info,
             std::format("Tool-calling enabled with {} tools", json_tools.size()));
-
-    ollama::response response =
-        ollama_tools::chat(ollama_client, model, messages, opts, json_tools);
+    bot.log(dpp::ll_info,
+            std::format("Codex tool schema sizes: {}",
+                        tool_schema_sizes_for_log(available_tools)));
 
     for (int iteration = 0; iteration < 4; ++iteration) {
-      const auto payload = response.as_json();
-      const bool has_tool_calls = ollama_tools::has_tool_calls(response);
-      std::size_t tool_call_count = 0;
-      if (has_tool_calls) {
-        tool_call_count = ollama_tools::tool_calls(response).size();
+      const auto auth_result = auth_manager->ensure_valid();
+      if (!auth_result.ok()) {
+        tool_calling_failed = true;
+        failure_reason = std::format("Auth failed during tool-calling: {}",
+                                     auth_result.error);
+        break;
       }
 
-      std::size_t content_length = 0;
-      if (payload.contains("message") && payload["message"].is_object() &&
-          payload["message"].contains("content")) {
-        const auto &content = payload["message"]["content"];
-        if (content.is_string()) {
-          content_length = content.get<std::string>().size();
-        } else if (!content.is_null()) {
-          content_length = content.dump().size();
-        }
+      const CodexRequest request{.model = model,
+                                 .instructions =
+                                     join_instructions(config.system_prompt,
+                                                       instruction_suffix),
+                                 .messages = initial_messages,
+                                 .input_items = accumulated_items,
+                                 .tools = analytics_tool_used ? Json::array()
+                                                              : json_tools};
+      bot.log(dpp::ll_info,
+              std::format("Codex tool request iteration={} prompt_bytes={} tools={} "
+                          "input_items={} payload_bytes={} analytics_forced_final={}",
+                          iteration + 1, prompt.size(), json_tools.size(),
+                          accumulated_items.is_array() ? accumulated_items.size() : 0,
+                          request_payload_bytes(request),
+                          analytics_tool_used ? "yes" : "no"));
+      const auto result = codex_client.create_response(*auth_result.auth, request);
+      if (!result.ok()) {
+        tool_calling_failed = true;
+        failure_reason = std::format("Codex tool request failed: {}", result.error);
+        break;
       }
 
-      std::string done = "n/a";
-      if (payload.contains("done")) {
-        done = payload["done"].dump();
-      }
+      const auto &response = *result.response;
+      const bool has_tool_calls = !response.tool_calls.empty();
+      const std::size_t tool_call_count = response.tool_calls.size();
 
-      std::string done_reason = "n/a";
-      if (payload.contains("done_reason")) {
-        done_reason = payload["done_reason"].dump();
-      }
+      const std::size_t content_length = response.text.size();
 
       bot.log(dpp::ll_info,
               std::format("Tool loop iteration={} has_tool_calls={} tool_calls_count={} "
-                          "content_length={} done={} done_reason={} tool_names={}",
+                          "content_length={} tool_names={}",
                           iteration + 1, has_tool_calls, tool_call_count,
-                          content_length, done, done_reason,
+                          content_length,
                           tool_call_names_for_log(response)));
 
+      if (response.output_items.is_array()) {
+        for (const auto &item : response.output_items) {
+          accumulated_items.push_back(item);
+        }
+      }
+
       if (!has_tool_calls) {
-        answer = response_to_text(response);
+        answer = response.text;
         if (answer.empty()) {
           saw_empty_content_without_tool_calls = true;
           const std::string payload_preview =
-              truncate_for_log(payload.dump(), 600);
+              truncate_for_log(response.output_items.dump(), 600);
           bot.log(dpp::ll_warning,
-                  std::format("Tool chat returned empty assistant content ({}) "
-                              "payload={}",
-                              response_shape(response), payload_preview));
+                  std::format("Tool chat returned empty assistant content payload={}",
+                              payload_preview));
         }
         break;
       }
 
-      messages.push_back(ollama_tools::assistant_message(response));
-
-      int prompt_eval_count = 0;
-      if (payload.contains("prompt_eval_count") &&
-          payload["prompt_eval_count"].is_number_integer())
-        prompt_eval_count = payload["prompt_eval_count"].get<int>();
-
-      std::size_t iteration_tool_output_bytes = 0;
-
-      for (const auto &tool_call : ollama_tools::tool_calls(response)) {
-        std::string tool_name = "unknown_tool";
-        std::string arguments_json = "{}";
-
-        if (tool_call.contains("function") && tool_call["function"].is_object()) {
-          const auto &fn = tool_call["function"];
-          if (fn.contains("name") && fn["name"].is_string()) {
-            tool_name = fn["name"].get<std::string>();
-          }
-          if (fn.contains("arguments") && fn["arguments"].is_object()) {
-            arguments_json = fn["arguments"].dump();
-          } else if (fn.contains("arguments") && fn["arguments"].is_string()) {
-            arguments_json = fn["arguments"].get<std::string>();
-          }
-        }
+      for (const auto &tool_call : response.tool_calls) {
+        const std::string &tool_name = tool_call.name;
+        const std::string arguments_json = tool_call.arguments.dump();
 
         std::string logged_args = arguments_json;
         if (logged_args.size() > 300) {
@@ -395,7 +414,6 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
         }
 
         last_tool_output_size = tool_output.size();
-        iteration_tool_output_bytes += tool_output.size();
         last_tool_output_preview = tool_output;
         if (last_tool_output_preview.size() > 300) {
           last_tool_output_preview.resize(300);
@@ -404,39 +422,33 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
         bot.log(dpp::ll_info,
                 std::format("Tool call result: {} output_bytes={}", tool_name,
                             tool_output.size()));
-        messages.push_back(ollama_tools::tool_result_message(tool_name, tool_output));
+        if (tool_call.call_id.empty()) {
+          tool_calling_failed = true;
+          failure_reason = std::format("Tool call '{}' was missing a call id.",
+                                       tool_name);
+          break;
+        }
+
+        accumulated_items.push_back(Json{{"type", "function_call_output"},
+                                         {"call_id", tool_call.call_id},
+                                         {"output", tool_output}});
       }
 
-      if (prompt_eval_count > 0) {
-        const int new_ctx = static_cast<int>(
-            (prompt_eval_count + iteration_tool_output_bytes / 3.5 + config.num_predict) * 1.2);
-        const int current_ctx = opts["num_ctx"].get<int>();
-        if (new_ctx > current_ctx) {
-          opts["num_ctx"] = new_ctx;
-          bot.log(dpp::ll_info,
-                  std::format("Updated num_ctx={} (prompt_eval_count={} tool_bytes={})",
-                              new_ctx, prompt_eval_count, iteration_tool_output_bytes));
-        }
+      if (tool_calling_failed) {
+        break;
       }
 
       if (analytics_tool_used) {
         bot.log(dpp::ll_info,
                 "Analytics tool result received; forcing final response without tools");
-        messages.emplace_back(
-            "system",
+        instruction_suffix =
             "Tool phase is complete. Use the returned analytics result as the final "
             "source of truth. Do not ask to run another query. Provide the final "
-            "answer now.");
-        response =
-            ollama_tools::chat(ollama_client, model, messages, opts,
-                               ollama_tools::tools{});
-      } else {
-        response =
-            ollama_tools::chat(ollama_client, model, messages, opts, json_tools);
+            "answer now.";
       }
     }
 
-    if (answer.empty()) {
+    if (answer.empty() && !tool_calling_failed) {
       tool_calling_failed = true;
       if (saw_empty_content_without_tool_calls) {
         failure_reason = "Empty assistant content with no tool_calls.";
@@ -444,9 +456,6 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
         failure_reason = "Tool-calling did not finish within 4 iterations.";
       }
     }
-  } catch (ollama::exception e) {
-    tool_calling_failed = true;
-    failure_reason = std::format("Exception while running tool-calling: {}", e.what());
   } catch (const std::exception &e) {
     tool_calling_failed = true;
     failure_reason =
@@ -467,18 +476,32 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
             last_tool_output_size, last_tool_output_preview));
 
     try {
-      const ollama::response fallback_response =
-          ollama_tools::chat(ollama_client, model, messages, opts,
-                             ollama_tools::tools{});
-      answer = response_to_text(fallback_response);
-    } catch (ollama::exception e) {
-      bot.log(dpp::ll_error,
-              std::format("Fallback chat after tool-calling failure also failed: {}",
-                          e.what()));
-      answer = "I had trouble finishing that request right now.";
+      const auto auth_result = auth_manager->ensure_valid();
+      if (!auth_result.ok()) {
+        throw std::runtime_error(auth_result.error);
+      }
+
+      const CodexRequest fallback_request{.model = model,
+                                          .instructions =
+                                              join_instructions(config.system_prompt,
+                                                                instruction_suffix),
+                                          .messages = initial_messages,
+                                          .input_items = accumulated_items,
+                                          .tools = Json::array()};
+      bot.log(dpp::ll_info,
+              std::format("Codex fallback request prompt_bytes={} input_items={} payload_bytes={}",
+                          prompt.size(),
+                          accumulated_items.is_array() ? accumulated_items.size() : 0,
+                          request_payload_bytes(fallback_request)));
+      const auto fallback_response =
+          codex_client.create_response(*auth_result.auth, fallback_request);
+      if (!fallback_response.ok()) {
+        throw std::runtime_error(fallback_response.error);
+      }
+      answer = fallback_response.response->text;
     } catch (const std::exception &e) {
       bot.log(dpp::ll_error,
-              std::format("Fallback chat after tool-calling failure threw: {}",
+              std::format("Fallback chat after tool-calling failure also failed: {}",
                           e.what()));
       answer = "I had trouble finishing that request right now.";
     }

@@ -225,100 +225,100 @@ Important runtime headers:
 ## Phase 6: HTTP / Codex Client
 
 ### 6.1 Choose/standardize HTTP client
-- [ ] Determine available HTTP stack to use in C++
-- [ ] Support:
-  - [ ] JSON POST
-  - [ ] headers
-  - [ ] TLS HTTPS
-  - [ ] timeouts
-- [ ] Reuse one implementation for auth + model requests
+- [x] Determine available HTTP stack to use in C++
+- [x] Support:
+  - [x] JSON POST
+  - [x] headers
+  - [x] TLS HTTPS
+  - [x] timeouts
+- [x] Reuse one implementation for auth + model requests
 
 ### 6.2 Implement Codex request client
-- [ ] Add request builder for `https://chatgpt.com/backend-api/codex/responses`
-- [ ] Add bearer auth header
-- [ ] Add `ChatGPT-Account-Id` header when present
-- [ ] Ensure request/response logging avoids secrets
+- [x] Add request builder for `https://chatgpt.com/backend-api/codex/responses`
+- [x] Add bearer auth header
+- [x] Add `ChatGPT-Account-Id` header when present
+- [x] Ensure request/response logging avoids secrets
 
 ### 6.3 Implement response parsing
-- [ ] Parse normal text output
-- [ ] Parse tool-call output
-- [ ] Parse multimodal/image responses if shape differs
-- [ ] Handle API errors and malformed payloads cleanly
+- [x] Parse normal text output
+- [x] Parse tool-call output
+- [x] Parse multimodal/image responses if shape differs
+- [x] Handle API errors and malformed payloads cleanly
 
 ## Phase 7: Plain LLM Generation
 
 ### 7.1 Port `generate_text()`
-- [ ] Reimplement normal text reply path
-- [ ] Reimplement diff path
-- [ ] Reimplement image-description path
-- [ ] Use `config.chatgpt_model` for all modes
+- [x] Reimplement normal text reply path
+- [x] Reimplement diff path
+- [x] Reimplement image-description path
+- [x] Use `config.chatgpt_model` for all modes
 
 ### 7.2 Map prompts correctly
-- [ ] `TextReply` uses `system_prompt`
-- [ ] `Diff` uses `diff_system_prompt`
-- [ ] `ImageDescription` uses `image_description_system_prompt`
-- [ ] Put selected system prompt into `instructions`
+- [x] `TextReply` uses `system_prompt`
+- [x] `Diff` uses `diff_system_prompt`
+- [x] `ImageDescription` uses `image_description_system_prompt`
+- [x] Put selected system prompt into `instructions`
 
 ### 7.3 Preserve output limits and error handling
-- [ ] Keep length cap behavior
-- [ ] Keep bot-safe fallback strings
-- [ ] Preserve useful logs without leaking auth data
+- [x] Keep length cap behavior
+- [x] Keep bot-safe fallback strings
+- [x] Preserve useful logs without leaking auth data
 
 ## Phase 8: Tool Calling
 
 ### 8.1 Replace Ollama tool wiring
-- [ ] Remove `include/OllamaToolCalling.h` usage from `LlmService`
-- [ ] Rebuild tool schema generation for Codex responses format
-- [ ] Preserve existing `ToolDefinition` interface if possible
+- [x] Remove `include/OllamaToolCalling.h` usage from `LlmService`
+- [x] Rebuild tool schema generation for Codex responses format
+- [x] Preserve existing `ToolDefinition` interface if possible
 
 ### 8.2 Port iterative tool loop
-- [ ] Send available tools with request
-- [ ] Parse tool calls from response
-- [ ] Execute current tool executor callback
-- [ ] Append tool results into follow-up request
-- [ ] Repeat until final answer or iteration cap
+- [x] Send available tools with request
+- [x] Parse tool calls from response
+- [x] Execute current tool executor callback
+- [x] Append tool results into follow-up request
+- [x] Repeat until final answer or iteration cap
 
 ### 8.3 Preserve current safeguards
-- [ ] Duplicate tool-call blocking
-- [ ] Max iteration count
-- [ ] Logging of tool name/args/result size
-- [ ] Analytics forced final-response path
-- [ ] Fallback without tools when tool mode fails
+- [x] Duplicate tool-call blocking
+- [x] Max iteration count
+- [x] Logging of tool name/args/result size
+- [x] Analytics forced final-response path
+- [x] Fallback without tools when tool mode fails
 
 ### 8.4 Caller compatibility
-- [ ] Keep `DiscordEventService` tool executor contract unchanged if possible
-- [ ] Update call sites only where necessary
+- [x] Keep `DiscordEventService` tool executor contract unchanged if possible
+- [x] Update call sites only where necessary
 
 ## Phase 9: Image Support
 
 ### 9.1 Keep attachment acquisition
-- [ ] Preserve current attachment download flow
-- [ ] Preserve allowed image content types
-- [ ] Keep base64 conversion if needed by target API
+- [x] Preserve current attachment download flow
+- [x] Preserve allowed image content types
+- [x] Keep base64 conversion if needed by target API
 
 ### 9.2 Map images into Codex request format
-- [ ] Implement image input structure for normal multimodal chat
-- [ ] Implement image input structure for image description mode
-- [ ] Verify multiple-image handling if needed
+- [x] Implement image input structure for normal multimodal chat
+- [x] Implement image input structure for image description mode
+- [x] Verify multiple-image handling if needed
 
 ### 9.3 Validate behavior
-- [ ] Normal reply with image attachment
-- [ ] Image description response
-- [ ] Graceful behavior when images are unsupported or malformed
+- [x] Normal reply with image attachment
+- [x] Image description response
+- [x] Graceful behavior when images are unsupported or malformed
 
 ## Phase 10: Remove Ollama Dependency
 
 ### 10.1 Remove remaining code usages
-- [ ] Remove `#include <ollama.hpp>` everywhere
-- [ ] Remove Ollama request/response/image types
-- [ ] Remove `OllamaToolCalling.h`
-- [ ] Remove any stale comments or logs referring to Ollama
+- [x] Remove `#include <ollama.hpp>` everywhere
+- [x] Remove Ollama request/response/image types
+- [x] Remove `OllamaToolCalling.h`
+- [x] Remove any stale comments or logs referring to Ollama
 
 ### 10.2 Remove build dependency
-- [ ] Remove `FetchContent_Declare(ollama_hpp ...)`
-- [ ] Remove `FetchContent_MakeAvailable(ollama_hpp)`
-- [ ] Remove include directories for `ollama_hpp`
-- [ ] Confirm nothing else depends on it
+- [x] Remove `FetchContent_Declare(ollama_hpp ...)`
+- [x] Remove `FetchContent_MakeAvailable(ollama_hpp)`
+- [x] Remove include directories for `ollama_hpp`
+- [x] Confirm nothing else depends on it
 
 ## Phase 11: Build / Validation
 
@@ -354,7 +354,7 @@ Important runtime headers:
 - [ ] `CLAUDE.md`
 
 ### Files likely to be deleted
-- [ ] `include/OllamaToolCalling.h`
+- [x] `include/OllamaToolCalling.h`
 
 ### New files likely to be added
 - [ ] local JSON alias header

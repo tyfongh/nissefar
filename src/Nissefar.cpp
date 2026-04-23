@@ -9,7 +9,17 @@
 #include <WebPageService.h>
 #include <YoutubeService.h>
 #include <dpp/misc-enum.h>
+#include <chrono>
 #include <stdexcept>
+
+namespace {
+
+std::int64_t current_unix_time() {
+  using namespace std::chrono;
+  return duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+}
+
+} // namespace
 
 Nissefar::Nissefar() {
   if (!config.is_valid) {
@@ -37,6 +47,23 @@ Nissefar::Nissefar() {
            std::format("ChatGPT model: {}", config.chatgpt_model));
   bot->log(dpp::ll_info,
            std::format("ChatGPT auth file: {}", auth_result.path));
+  if (auth_result.auth.has_value()) {
+    const auto now = current_unix_time();
+    const auto expires_in = auth_result.auth->expires - now;
+    bot->log(dpp::ll_info,
+             std::format("ChatGPT auth expiry: unix={} expires_in={}s refresh_needed={}",
+                         auth_result.auth->expires, expires_in,
+                         ChatGptAuthManager::is_expired(*auth_result.auth, now)
+                             ? "yes"
+                             : "no"));
+    if (auth_result.auth->account_id.has_value()) {
+      bot->log(dpp::ll_info,
+               std::format("ChatGPT account id present: {}",
+                           *auth_result.auth->account_id));
+    } else {
+      bot->log(dpp::ll_info, "ChatGPT account id present: no");
+    }
+  }
   bot->log(dpp::ll_info,
            std::format("LLM context size: {}", config.context_size));
 

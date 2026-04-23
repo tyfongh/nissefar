@@ -8,14 +8,16 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(FetchContent)
 
+set(FETCHCONTENT_BASE_DIR "${CMAKE_BINARY_DIR}/_deps" CACHE PATH
+    "FetchContent base directory" FORCE)
+
 FetchContent_Declare(
-  ollama_hpp
-  GIT_REPOSITORY https://github.com/jmont-dev/ollama-hpp.git
-  GIT_TAG master
-  GIT_SHALLOW TRUE
+  cpp_httplib
+  URL https://github.com/yhirose/cpp-httplib/archive/refs/tags/v0.20.0.tar.gz
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
-FetchContent_MakeAvailable(ollama_hpp)
+FetchContent_MakeAvailable(cpp_httplib)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
@@ -41,12 +43,15 @@ add_executable(${PROJECT_NAME}
   src/AnalyticsQuery.cpp
   src/ChatGptAuth.cpp
   src/ChatGptDeviceAuth.cpp
+  src/HttpClient.cpp
+  src/CodexClient.cpp
 )
 
 add_compile_definitions(DPP_CORO=ON)
 
 find_package(DPP REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(CURL REQUIRED)
 find_library(PQXX_LIB pqxx)
 find_library(PQ_LIB pq)
 
@@ -54,6 +59,7 @@ target_link_libraries(${PROJECT_NAME}
   ${DPP_LIBRARIES}
   ${PQXX_LIB}
   ${PQ_LIB}
+  CURL::libcurl
   OpenSSL::SSL
   OpenSSL::Crypto
 )
@@ -62,7 +68,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
   include/
-  ${ollama_hpp_SOURCE_DIR}/include
+  ${cpp_httplib_SOURCE_DIR}
   ${DPP_INCLUDE_DIR}
 )
 
@@ -126,7 +132,7 @@ add_executable(analytics_query_tests
 
 target_include_directories(analytics_query_tests PRIVATE
   include/
-  ${ollama_hpp_SOURCE_DIR}/include
+  ${cpp_httplib_SOURCE_DIR}
 )
 
 set_target_properties(analytics_query_tests PROPERTIES
@@ -156,11 +162,12 @@ add_executable(chatgpt_auth_tests
   tests/ChatGptAuthTests.cpp
   src/ChatGptAuth.cpp
   src/ChatGptDeviceAuth.cpp
+  src/HttpClient.cpp
 )
 
 target_include_directories(chatgpt_auth_tests PRIVATE
   include/
-  ${ollama_hpp_SOURCE_DIR}/include
+  ${cpp_httplib_SOURCE_DIR}
 )
 
 target_compile_definitions(chatgpt_auth_tests PRIVATE
@@ -168,6 +175,7 @@ target_compile_definitions(chatgpt_auth_tests PRIVATE
 )
 
 target_link_libraries(chatgpt_auth_tests
+  CURL::libcurl
   OpenSSL::SSL
   OpenSSL::Crypto
 )
@@ -182,11 +190,12 @@ add_test(NAME chatgpt_auth_tests COMMAND chatgpt_auth_tests)
 add_executable(chatgpt_device_auth_tests
   tests/ChatGptDeviceAuthTests.cpp
   src/ChatGptDeviceAuth.cpp
+  src/HttpClient.cpp
 )
 
 target_include_directories(chatgpt_device_auth_tests PRIVATE
   include/
-  ${ollama_hpp_SOURCE_DIR}/include
+  ${cpp_httplib_SOURCE_DIR}
 )
 
 target_compile_definitions(chatgpt_device_auth_tests PRIVATE
@@ -194,6 +203,7 @@ target_compile_definitions(chatgpt_device_auth_tests PRIVATE
 )
 
 target_link_libraries(chatgpt_device_auth_tests
+  CURL::libcurl
   OpenSSL::SSL
   OpenSSL::Crypto
 )
@@ -205,15 +215,44 @@ set_target_properties(chatgpt_device_auth_tests PROPERTIES
 
 add_test(NAME chatgpt_device_auth_tests COMMAND chatgpt_device_auth_tests)
 
+add_executable(codex_client_tests
+  tests/CodexClientTests.cpp
+  src/CodexClient.cpp
+  src/HttpClient.cpp
+)
+
+target_include_directories(codex_client_tests PRIVATE
+  include/
+  ${cpp_httplib_SOURCE_DIR}
+)
+
+target_compile_definitions(codex_client_tests PRIVATE
+  CPPHTTPLIB_OPENSSL_SUPPORT
+)
+
+target_link_libraries(codex_client_tests
+  CURL::libcurl
+  OpenSSL::SSL
+  OpenSSL::Crypto
+)
+
+set_target_properties(codex_client_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME codex_client_tests COMMAND codex_client_tests)
+
 add_executable(nissefar-chatgpt-auth
   src/chatgpt_auth_main.cpp
   src/ChatGptAuth.cpp
   src/ChatGptDeviceAuth.cpp
+  src/HttpClient.cpp
 )
 
 target_include_directories(nissefar-chatgpt-auth PRIVATE
   include/
-  ${ollama_hpp_SOURCE_DIR}/include
+  ${cpp_httplib_SOURCE_DIR}
 )
 
 target_compile_definitions(nissefar-chatgpt-auth PRIVATE
@@ -221,11 +260,40 @@ target_compile_definitions(nissefar-chatgpt-auth PRIVATE
 )
 
 target_link_libraries(nissefar-chatgpt-auth
+  CURL::libcurl
   OpenSSL::SSL
   OpenSSL::Crypto
 )
 
 set_target_properties(nissefar-chatgpt-auth PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_executable(codex_probe
+  src/codex_probe_main.cpp
+  src/ChatGptAuth.cpp
+  src/ChatGptDeviceAuth.cpp
+  src/HttpClient.cpp
+  src/CodexClient.cpp
+)
+
+target_include_directories(codex_probe PRIVATE
+  include/
+  ${cpp_httplib_SOURCE_DIR}
+)
+
+target_compile_definitions(codex_probe PRIVATE
+  CPPHTTPLIB_OPENSSL_SUPPORT
+)
+
+target_link_libraries(codex_probe
+  CURL::libcurl
+  OpenSSL::SSL
+  OpenSSL::Crypto
+)
+
+set_target_properties(codex_probe PROPERTIES
   CXX_STANDARD 20
   CXX_STANDARD_REQUIRED ON
 )

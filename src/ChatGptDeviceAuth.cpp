@@ -1,6 +1,6 @@
 #include <ChatGptDeviceAuth.h>
 
-#include <httplib.h>
+#include <HttpClient.h>
 
 #include <algorithm>
 #include <array>
@@ -10,7 +10,7 @@
 namespace chatgpt_device_auth {
 namespace {
 
-constexpr int kHttpTimeoutSeconds = 30;
+constexpr const char *kAuthHost = "auth.openai.com";
 
 std::string url_encode(const std::string &value) {
   std::string encoded;
@@ -29,69 +29,35 @@ std::string url_encode(const std::string &value) {
   return encoded;
 }
 
-void configure_auth_client(httplib::SSLClient &client) {
-  client.set_connection_timeout(kHttpTimeoutSeconds);
-  client.set_read_timeout(kHttpTimeoutSeconds);
-  client.set_write_timeout(kHttpTimeoutSeconds);
-  client.enable_server_certificate_verification(true);
-  client.set_follow_location(true);
-  client.set_default_headers(
-      {{"User-Agent", "nissefar-chatgpt-auth/0.1"}});
-}
-
-std::optional<Json> parse_json_body(const httplib::Result &response,
-                                    std::string &error) {
-  if (!response) {
-    error = std::format("HTTP request failed: {}",
-                        httplib::to_string(response.error()));
-    return std::nullopt;
-  }
-
-  try {
-    return Json::parse(response->body);
-  } catch (const std::exception &e) {
-    error = std::format("Failed to parse JSON response: {}", e.what());
-    return std::nullopt;
-  }
-}
-
-OAuthTokenResult parse_oauth_token_response(const httplib::Result &response,
+OAuthTokenResult parse_oauth_token_response(const http_json::Result &result,
                                             const std::string &failure_prefix) {
-  if (!response) {
-    return {std::nullopt,
-            std::format("{}: {}", failure_prefix,
-                        httplib::to_string(response.error()))};
+  if (!result.ok()) {
+    return {std::nullopt, std::format("{}: {}", failure_prefix, result.error)};
   }
-  if (response->status < 200 || response->status >= 300) {
+  if (result.response->status < 200 || result.response->status >= 300) {
     return {std::nullopt,
-            std::format("{}: HTTP {}", failure_prefix, response->status)};
+            std::format("{}: HTTP {}", failure_prefix, result.response->status)};
+  }
+  if (!result.response->json.has_value()) {
+    return {std::nullopt, "Token response did not contain JSON."};
   }
 
-  std::string error;
-  auto payload = parse_json_body(response, error);
-  if (!payload.has_value()) {
-    return {std::nullopt, std::move(error)};
-  }
-
-  if (!payload->contains("access_token") ||
-      !(*payload)["access_token"].is_string() ||
-      !payload->contains("refresh_token") ||
-      !(*payload)["refresh_token"].is_string()) {
+  const auto &payload = *result.response->json;
+  if (!payload.contains("access_token") || !payload["access_token"].is_string() ||
+      !payload.contains("refresh_token") || !payload["refresh_token"].is_string()) {
     return {std::nullopt, "Token response is missing required fields."};
   }
 
   int expires_in = 3600;
-  if (payload->contains("expires_in") && (*payload)["expires_in"].is_number()) {
-    expires_in = (*payload)["expires_in"].get<int>();
+  if (payload.contains("expires_in") && payload["expires_in"].is_number()) {
+    expires_in = payload["expires_in"].get<int>();
   }
 
-  OAuthTokenResponse tokens{.access_token =
-                                (*payload)["access_token"].get<std::string>(),
-                            .refresh_token =
-                                (*payload)["refresh_token"].get<std::string>(),
-                            .id_token = payload->contains("id_token") &&
-                                                (*payload)["id_token"].is_string()
-                                            ? (*payload)["id_token"].get<std::string>()
+  OAuthTokenResponse tokens{.access_token = payload["access_token"].get<std::string>(),
+                            .refresh_token = payload["refresh_token"].get<std::string>(),
+                            .id_token = payload.contains("id_token") &&
+                                                payload["id_token"].is_string()
+                                            ? payload["id_token"].get<std::string>()
                                             : std::string(),
                             .expires_in = expires_in};
   return {tokens, {}};
@@ -156,135 +122,109 @@ std::string decode_base64url(std::string value) {
 } // namespace
 
 DeviceAuthorizationResult Client::start_device_authorization() const {
-  httplib::SSLClient client("auth.openai.com");
-  configure_auth_client(client);
+  const http_json::Client client(kAuthHost, "nissefar-chatgpt-auth/0.1");
+  const auto result = client.post_json(
+      "/api/accounts/deviceauth/usercode", Json{{"client_id", kClientId}});
 
-  const auto response = client.Post(
-      "/api/accounts/deviceauth/usercode",
-      std::format(R"({{"client_id":"{}"}})", kClientId),
-      "application/json");
-
-  if (!response) {
+  if (!result.ok()) {
     return {std::nullopt,
-            std::format("Failed to initiate device authorization: {}",
-                        httplib::to_string(response.error()))};
+            std::format("Failed to initiate device authorization: {}", result.error)};
   }
-  if (response->status < 200 || response->status >= 300) {
+  if (result.response->status < 200 || result.response->status >= 300) {
     return {std::nullopt,
             std::format("Failed to initiate device authorization: HTTP {}",
-                        response->status)};
+                        result.response->status)};
+  }
+  if (!result.response->json.has_value()) {
+    return {std::nullopt, "Device authorization response did not contain JSON."};
   }
 
-  std::string error;
-  auto payload = parse_json_body(response, error);
-  if (!payload.has_value()) {
-    return {std::nullopt, std::move(error)};
-  }
-
-  if (!payload->contains("device_auth_id") ||
-      !(*payload)["device_auth_id"].is_string() ||
-      !payload->contains("user_code") || !(*payload)["user_code"].is_string()) {
+  const auto &payload = *result.response->json;
+  if (!payload.contains("device_auth_id") || !payload["device_auth_id"].is_string() ||
+      !payload.contains("user_code") || !payload["user_code"].is_string()) {
     return {std::nullopt,
             "Device authorization response is missing required fields."};
   }
 
   int interval_seconds = 5;
-  if (payload->contains("interval")) {
-    if ((*payload)["interval"].is_string()) {
+  if (payload.contains("interval")) {
+    if (payload["interval"].is_string()) {
       try {
-        interval_seconds =
-            std::max(1, std::stoi((*payload)["interval"].get<std::string>()));
+        interval_seconds = std::max(1, std::stoi(payload["interval"].get<std::string>()));
       } catch (...) {
       }
-    } else if ((*payload)["interval"].is_number_integer()) {
-      interval_seconds = std::max(1, (*payload)["interval"].get<int>());
+    } else if (payload["interval"].is_number_integer()) {
+      interval_seconds = std::max(1, payload["interval"].get<int>());
     }
   }
 
-  return {DeviceAuthorization{.device_auth_id =
-                                  (*payload)["device_auth_id"].get<std::string>(),
-                              .user_code =
-                                  (*payload)["user_code"].get<std::string>(),
+  return {DeviceAuthorization{.device_auth_id = payload["device_auth_id"].get<std::string>(),
+                              .user_code = payload["user_code"].get<std::string>(),
                               .interval_seconds = interval_seconds},
           {}};
 }
 
 DevicePollResultWrapper
 Client::poll_device_authorization(const DeviceAuthorization &authorization) const {
-  httplib::SSLClient client("auth.openai.com");
-  configure_auth_client(client);
+  const http_json::Client client(kAuthHost, "nissefar-chatgpt-auth/0.1");
+  const auto result = client.post_json(
+      "/api/accounts/deviceauth/token",
+      Json{{"device_auth_id", authorization.device_auth_id},
+           {"user_code", authorization.user_code}});
 
-  Json body = {{"device_auth_id", authorization.device_auth_id},
-               {"user_code", authorization.user_code}};
-  const auto response = client.Post("/api/accounts/deviceauth/token",
-                                    body.dump(), "application/json");
-
-  if (!response) {
+  if (!result.ok()) {
     return {std::nullopt,
-            std::format("Failed to poll device authorization: {}",
-                        httplib::to_string(response.error()))};
+            std::format("Failed to poll device authorization: {}", result.error)};
   }
 
-  if (response->status == 403 || response->status == 404) {
+  if (result.response->status == 403 || result.response->status == 404) {
     return {DevicePollResult{.state = DevicePollResult::State::Pending}, {}};
   }
 
-  if (response->status < 200 || response->status >= 300) {
+  if (result.response->status < 200 || result.response->status >= 300) {
     return {std::nullopt,
             std::format("Device authorization polling failed: HTTP {}",
-                        response->status)};
+                        result.response->status)};
+  }
+  if (!result.response->json.has_value()) {
+    return {std::nullopt,
+            "Device authorization success response did not contain JSON."};
   }
 
-  std::string error;
-  auto payload = parse_json_body(response, error);
-  if (!payload.has_value()) {
-    return {std::nullopt, std::move(error)};
-  }
-
-  if (!payload->contains("authorization_code") ||
-      !(*payload)["authorization_code"].is_string() ||
-      !payload->contains("code_verifier") ||
-      !(*payload)["code_verifier"].is_string()) {
+  const auto &payload = *result.response->json;
+  if (!payload.contains("authorization_code") ||
+      !payload["authorization_code"].is_string() ||
+      !payload.contains("code_verifier") || !payload["code_verifier"].is_string()) {
     return {std::nullopt,
             "Device authorization success response is missing required fields."};
   }
 
   return {DevicePollResult{.state = DevicePollResult::State::Authorized,
-                           .authorization_code =
-                               (*payload)["authorization_code"].get<std::string>(),
-                           .code_verifier =
-                               (*payload)["code_verifier"].get<std::string>()},
+                           .authorization_code = payload["authorization_code"].get<std::string>(),
+                           .code_verifier = payload["code_verifier"].get<std::string>()},
           {}};
 }
 
 OAuthTokenResult Client::exchange_authorization_code(
     const std::string &authorization_code,
     const std::string &code_verifier) const {
-  httplib::SSLClient client("auth.openai.com");
-  configure_auth_client(client);
-
+  const http_json::Client client(kAuthHost, "nissefar-chatgpt-auth/0.1");
   const std::string body =
       std::format("grant_type=authorization_code&code={}&redirect_uri={}&client_id={}&code_verifier={}",
                   url_encode(authorization_code), url_encode(kDeviceCallbackUrl),
                   url_encode(kClientId), url_encode(code_verifier));
-  const auto response = client.Post("/oauth/token", body,
-                                    "application/x-www-form-urlencoded");
-
-  return parse_oauth_token_response(response, "Token exchange failed");
+  return parse_oauth_token_response(client.post_form("/oauth/token", body),
+                                    "Token exchange failed");
 }
 
 OAuthTokenResult Client::refresh_access_token(
     const std::string &refresh_token) const {
-  httplib::SSLClient client("auth.openai.com");
-  configure_auth_client(client);
-
+  const http_json::Client client(kAuthHost, "nissefar-chatgpt-auth/0.1");
   const std::string body =
       std::format("grant_type=refresh_token&refresh_token={}&client_id={}",
                   url_encode(refresh_token), url_encode(kClientId));
-  const auto response = client.Post("/oauth/token", body,
-                                    "application/x-www-form-urlencoded");
-
-  return parse_oauth_token_response(response, "Token refresh failed");
+  return parse_oauth_token_response(client.post_form("/oauth/token", body),
+                                    "Token refresh failed");
 }
 
 std::optional<Json> parse_jwt_claims(const std::string &token) {

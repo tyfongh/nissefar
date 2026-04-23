@@ -3,9 +3,9 @@
 
 #include <Config.h>
 #include <ChatGptAuth.h>
+#include <CodexClient.h>
 #include <LlmTypes.h>
 #include <dpp/dpp.h>
-#include <ollama.hpp>
 #include <functional>
 #include <string>
 #include <vector>
@@ -27,6 +27,9 @@ public:
                             const LlmImages &imagelist,
                             GenerationType gen_type) const;
 
+  std::optional<LlmGeneratedImage>
+  generate_image(const std::string &prompt, const LlmImages &imagelist) const;
+
   dpp::task<std::string>
   generate_text_with_tools(const std::string &prompt,
                            const LlmImages &imagelist,
@@ -41,7 +44,7 @@ private:
   const Config &config;
   dpp::cluster &bot;
   std::shared_ptr<ChatGptAuthManager> auth_manager;
-  mutable Ollama ollama_client;
+  CodexClient codex_client;
 };
 
 #endif // LLMSERVICE_H
