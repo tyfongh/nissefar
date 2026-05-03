@@ -117,7 +117,7 @@ bool ChatGptAuthManager::is_expired(const ChatGptAuth &auth, std::int64_t now,
   return auth.expires <= (now + refresh_skew_seconds);
 }
 
-ChatGptAuthRefreshResult ChatGptAuthManager::ensure_valid() {
+ChatGptAuthRefreshResult ChatGptAuthManager::ensure_valid(bool force_refresh) {
   std::lock_guard lock(mutex_);
 
   const auto current = load();
@@ -126,7 +126,7 @@ ChatGptAuthRefreshResult ChatGptAuthManager::ensure_valid() {
   }
 
   const std::int64_t now = now_();
-  if (!is_expired(*current.auth, now)) {
+  if (!force_refresh && !is_expired(*current.auth, now)) {
     return {*current.auth, current.path, {}, false};
   }
 

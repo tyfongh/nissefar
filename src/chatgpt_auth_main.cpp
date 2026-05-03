@@ -75,14 +75,14 @@ int main() {
       }
 
       const auto &tokens = *token_result.tokens;
-      ChatGptAuth auth{.type = "oauth",
-                       .refresh = tokens.refresh_token,
-                       .access = tokens.access_token,
-                       .expires = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                      std::chrono::system_clock::now().time_since_epoch())
-                                      .count() +
-                                  static_cast<std::int64_t>(tokens.expires_in) * 1000,
-                       .account_id = chatgpt_device_auth::extract_account_id(tokens)};
+       ChatGptAuth auth{.type = "oauth",
+                        .refresh = tokens.refresh_token,
+                        .access = tokens.access_token,
+                        .expires = std::chrono::duration_cast<std::chrono::seconds>(
+                                       std::chrono::system_clock::now().time_since_epoch())
+                                       .count() +
+                                   static_cast<std::int64_t>(tokens.expires_in),
+                        .account_id = chatgpt_device_auth::extract_account_id(tokens)};
 
       const std::string write_error = ChatGptAuthStore::write(auth);
       if (!write_error.empty()) {

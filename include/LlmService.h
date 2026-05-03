@@ -41,6 +41,9 @@ public:
   dpp::task<LlmImages> generate_images(std::vector<dpp::attachment> attachments) const;
 
 private:
+  CodexResponseResult
+  create_codex_response_with_auth_retry(const CodexRequest &request) const;
+
   const Config &config;
   dpp::cluster &bot;
   std::shared_ptr<ChatGptAuthManager> auth_manager;

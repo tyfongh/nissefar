@@ -241,6 +241,48 @@ void test_token_manager_reports_refresh_failures() {
   std::filesystem::remove_all(temp_dir);
 }
 
+void test_token_manager_force_refreshes_valid_token() {
+  const auto temp_dir = std::filesystem::temp_directory_path() /
+                        "nissefar-chatgpt-auth-manager-force-refresh";
+  std::filesystem::remove_all(temp_dir);
+  const auto auth_path = temp_dir / "chatgpt.json";
+
+  const ChatGptAuth auth{.type = "oauth",
+                         .refresh = "refresh-token",
+                         .access = "access-token",
+                         .expires = 2000,
+                         .account_id = std::string("acct_current")};
+  expect_true(ChatGptAuthStore::write_to_path(auth, auth_path.string()).empty(),
+              "write valid auth for force refresh test");
+
+  int refresh_calls = 0;
+  ChatGptAuthManager manager(
+      auth_path.string(),
+      [&refresh_calls](const std::string &refresh_token) {
+        ++refresh_calls;
+        expect_true(refresh_token == "refresh-token",
+                    "force refresh uses stored refresh token");
+        return chatgpt_device_auth::OAuthTokenResult{
+            chatgpt_device_auth::OAuthTokenResponse{.access_token = "new-access",
+                                                    .refresh_token = "new-refresh",
+                                                    .id_token = "",
+                                                    .expires_in = 600},
+            {}};
+      },
+      [] { return 1000; });
+
+  const auto result = manager.ensure_valid(true);
+  expect_true(result.ok(), "forced refresh succeeds");
+  expect_true(result.refreshed, "forced refresh reports refresh");
+  expect_true(refresh_calls == 1, "force refresh calls refresh even if token is valid");
+  if (result.ok()) {
+    expect_true(result.auth->access == "new-access",
+                "force refresh updates access token");
+  }
+
+  std::filesystem::remove_all(temp_dir);
+}
+
 void test_expiry_check_uses_refresh_skew() {
   const ChatGptAuth auth{.type = "oauth",
                          .refresh = "refresh",
@@ -263,6 +305,7 @@ int main() {
   test_token_manager_refreshes_and_preserves_account_id();
   test_token_manager_refresh_updates_account_id_from_token_claims();
   test_token_manager_reports_refresh_failures();
+  test_token_manager_force_refreshes_valid_token();
   test_expiry_check_uses_refresh_skew();
 
   if (failures != 0) {

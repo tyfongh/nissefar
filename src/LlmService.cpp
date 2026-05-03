@@ -123,6 +123,8 @@ std::string system_prompt_for_type(const Config &config,
   return config.system_prompt;
 }
 
+bool is_auth_error(const CodexResponseResult &result) { return result.status == 401; }
+
 std::size_t request_payload_bytes(const CodexRequest &request) {
   return CodexClient::build_request_json(request).dump().size();
 }
@@ -137,6 +139,30 @@ LlmService::LlmService(const Config &config, dpp::cluster &bot,
                        std::shared_ptr<ChatGptAuthManager> auth_manager)
     : config(config), bot(bot), auth_manager(std::move(auth_manager)),
       codex_client("nissefar/0.1") {}
+
+CodexResponseResult
+LlmService::create_codex_response_with_auth_retry(const CodexRequest &request) const {
+  const auto auth_result = auth_manager->ensure_valid();
+  if (!auth_result.ok()) {
+    return {std::nullopt, auth_result.error};
+  }
+
+  auto result = codex_client.create_response(*auth_result.auth, request);
+  if (!is_auth_error(result)) {
+    return result;
+  }
+
+  bot.log(dpp::ll_warning,
+          std::format("Codex request returned HTTP 401; forcing auth refresh and retrying once"));
+
+  const auto refresh_result = auth_manager->ensure_valid(true);
+  if (!refresh_result.ok()) {
+    return {std::nullopt,
+            std::format("Auth retry after HTTP 401 failed: {}", refresh_result.error)};
+  }
+
+  return codex_client.create_response(*refresh_result.auth, request);
+}
 
 dpp::task<LlmImages> LlmService::generate_images(
     std::vector<dpp::attachment> attachments) const {
@@ -186,7 +212,7 @@ std::string LlmService::generate_text(const std::string &prompt,
             std::format("Codex plain request mode={} prompt_bytes={} images={} payload_bytes={}",
                         static_cast<int>(gen_type), prompt.size(), imagelist.size(),
                         request_payload_bytes(request)));
-    const auto result = codex_client.create_response(*auth_result.auth, request);
+    const auto result = create_codex_response_with_auth_retry(request);
     if (!result.ok()) {
       bot.log(dpp::ll_error,
               std::format("ChatGPT generation failed for mode={} prompt_bytes={} images={}: {}",
@@ -242,7 +268,7 @@ LlmService::generate_image(const std::string &prompt,
     bot.log(dpp::ll_info,
             std::format("Codex image request prompt_bytes={} images={} payload_bytes={}",
                         prompt.size(), imagelist.size(), request_payload_bytes(request)));
-    const auto result = codex_client.create_response(*auth_result.auth, request);
+    const auto result = create_codex_response_with_auth_retry(request);
     if (!result.ok()) {
       bot.log(dpp::ll_error,
               std::format("ChatGPT image generation failed for prompt_bytes={} images={}: {}",
@@ -316,14 +342,6 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
                         tool_schema_sizes_for_log(available_tools)));
 
     for (int iteration = 0; iteration < 4; ++iteration) {
-      const auto auth_result = auth_manager->ensure_valid();
-      if (!auth_result.ok()) {
-        tool_calling_failed = true;
-        failure_reason = std::format("Auth failed during tool-calling: {}",
-                                     auth_result.error);
-        break;
-      }
-
       const CodexRequest request{.model = model,
                                  .instructions =
                                      join_instructions(config.system_prompt,
@@ -335,11 +353,11 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
       bot.log(dpp::ll_info,
               std::format("Codex tool request iteration={} prompt_bytes={} tools={} "
                           "input_items={} payload_bytes={} analytics_forced_final={}",
-                          iteration + 1, prompt.size(), json_tools.size(),
-                          accumulated_items.is_array() ? accumulated_items.size() : 0,
-                          request_payload_bytes(request),
-                          analytics_tool_used ? "yes" : "no"));
-      const auto result = codex_client.create_response(*auth_result.auth, request);
+                           iteration + 1, prompt.size(), json_tools.size(),
+                           accumulated_items.is_array() ? accumulated_items.size() : 0,
+                           request_payload_bytes(request),
+                           analytics_tool_used ? "yes" : "no"));
+      const auto result = create_codex_response_with_auth_retry(request);
       if (!result.ok()) {
         tool_calling_failed = true;
         failure_reason = std::format("Codex tool request failed: {}", result.error);
@@ -476,11 +494,6 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
             last_tool_output_size, last_tool_output_preview));
 
     try {
-      const auto auth_result = auth_manager->ensure_valid();
-      if (!auth_result.ok()) {
-        throw std::runtime_error(auth_result.error);
-      }
-
       const CodexRequest fallback_request{.model = model,
                                           .instructions =
                                               join_instructions(config.system_prompt,
@@ -494,7 +507,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
                           accumulated_items.is_array() ? accumulated_items.size() : 0,
                           request_payload_bytes(fallback_request)));
       const auto fallback_response =
-          codex_client.create_response(*auth_result.auth, fallback_request);
+          create_codex_response_with_auth_retry(fallback_request);
       if (!fallback_response.ok()) {
         throw std::runtime_error(fallback_response.error);
       }

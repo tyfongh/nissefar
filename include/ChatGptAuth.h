@@ -55,7 +55,8 @@ public:
 
   [[nodiscard]] const std::string &path() const;
   [[nodiscard]] ChatGptAuthResult load() const;
-  [[nodiscard]] ChatGptAuthRefreshResult ensure_valid();
+  [[nodiscard]] ChatGptAuthRefreshResult ensure_valid(
+      bool force_refresh = false);
 
   static bool is_expired(const ChatGptAuth &auth, std::int64_t now,
                          std::int64_t refresh_skew_seconds = 60);
