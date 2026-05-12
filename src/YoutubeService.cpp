@@ -84,7 +84,7 @@ dpp::task<void> YoutubeService::process(bool first_run) {
             "Bjørn Nyland just started a live stream on youtube. Make your "
             "comment an "
             "announcement of that. Below are the titles of the live "
-            "stream(s). "
+            "stream(s). Write the announcement in English. "
             "Do not include any link to the stream. Do not include any user "
             "ids.";
 
