@@ -735,8 +735,8 @@ dpp::task<void> DiscordEventService::run_summary_queue(dpp::snowflake channel_id
       co_return co_await video_summary_service.summarize_video(requested_url);
     };
 
-    const std::string prompt =
-        std::format("A YouTube video was posted. Summarize it: {}", url);
+    const std::string prompt = std::format(
+        "A YouTube video was posted. Summarize it in English: {}", url);
 
     auto summary = co_await llm_service.generate_text_with_tools(
         prompt, LlmImages{}, summary_tools, execute_summary_tool);
