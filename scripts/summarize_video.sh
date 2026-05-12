@@ -12,7 +12,7 @@ MODEL_DIR="/mnt/disker/whisper"
 MODEL_PATH="/models/ggml-small.bin"
 
 OLLAMA_URL="http://localhost:11434/v1/chat/completions"
-OLLAMA_MODEL="glm-5:cloud"
+OLLAMA_MODEL="minimax-m2.7:cloud"
 
 cleanup() {
     rm -rf "$WORK_DIR"
@@ -81,27 +81,29 @@ fi
 TRANSCRIPT=$(cat "$TRANSCRIPT_FILE")
 [ -z "$TRANSCRIPT" ] && error "Transcript empty"
 
+echo $TRANSCRIPT
+
 # Summarize via Ollama OpenAI-compatible API
-RESPONSE=$(curl -sS "$OLLAMA_URL" \
-    -H "Content-Type: application/json" \
-    --fail-with-body \
-    --connect-timeout 15 \
-    --max-time 360 \
-    -d "$(jq -n \
-        --arg model "$OLLAMA_MODEL" \
-        --arg content "$TRANSCRIPT" \
-        '{
-            model: $model,
-            messages: [
-                {role: "system", content: "Produce a concise summary."},
-                {role: "user", content: $content}
-            ],
-            temperature: 0.2
-        }')"
-) || error "Ollama API request failed"
-
-SUMMARY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
-
-[ -z "$SUMMARY" ] && error "Summarization failed"
-
-echo "$SUMMARY"
+#RESPONSE=$(curl -sS "$OLLAMA_URL" \
+#    -H "Content-Type: application/json" \
+#    --fail-with-body \
+#    --connect-timeout 15 \
+#    --max-time 360 \
+#    -d "$(jq -n \
+#        --arg model "$OLLAMA_MODEL" \
+#        --arg content "$TRANSCRIPT" \
+#        '{
+#            model: $model,
+#            messages: [
+#                {role: "system", content: "Produce a concise summary."},
+#                {role: "user", content: $content}
+#            ],
+#            temperature: 0.2
+#        }')"
+#) || error "Ollama API request failed"
+#
+#SUMMARY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+#
+#[ -z "$SUMMARY" ] && error "Summarization failed"
+#
+#echo "$SUMMARY"
