@@ -406,7 +406,7 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         {"get_charging_curve_data",
          "Get EV charging power by SoC from Charging curve sheet as transposed CSV", ""},
         {"get_youtube_stream_status",
-         "Check whether the tracked YouTube stream is currently live. If live, returns the current stream title.",
+         "Check whether the tracked YouTube stream is currently live. If live, returns the current stream title, start time, and duration when available.",
          ""},
         {"get_webpage_text",
          "Fetch and extract readable text from a public webpage. Use this when the user asks to summarize or answer questions about a URL.",
@@ -553,6 +553,12 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         payload["is_live"] = status.is_live;
         if (status.is_live && !status.title.empty()) {
           payload["title"] = status.title;
+        }
+        if (status.is_live && status.started_at.has_value()) {
+          payload["started_at"] = *status.started_at;
+        }
+        if (status.is_live && status.duration_seconds.has_value()) {
+          payload["duration_seconds"] = *status.duration_seconds;
         }
         co_return payload.dump();
       }
