@@ -1,4 +1,5 @@
 #include <HtmlTextExtract.h>
+#include <HormuzStatus.h>
 #include <WebPageService.h>
 #include <UrlSafety.h>
 
@@ -135,4 +136,16 @@ WebPageService::fetch_webpage_text(const std::string &url) const {
                       current_url, response.status, out.str().size()));
 
   co_return out.str();
+}
+
+dpp::task<std::string> WebPageService::fetch_hormuz_strait_status() const {
+  constexpr const char *url = "https://hormuzstatus.com/";
+  auto response = co_await bot.co_request(url, dpp::m_get);
+
+  if (response.status != 200) {
+    co_return std::format("Tool error: Hormuz status request failed with status {}.",
+                          response.status);
+  }
+
+  co_return hormuz_status::parse_status_html(response.body, url);
 }

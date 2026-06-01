@@ -33,6 +33,7 @@ add_executable(${PROJECT_NAME}
   src/YoutubeService.cpp
   src/UrlSafety.cpp
   src/HtmlTextExtract.cpp
+  src/HormuzStatus.cpp
   src/WebPageService.cpp
   src/VideoSummaryService.cpp
   src/CalculationService.cpp
@@ -157,6 +158,22 @@ set_target_properties(html_text_extract_tests PROPERTIES
 )
 
 add_test(NAME html_text_extract_tests COMMAND html_text_extract_tests)
+
+add_executable(hormuz_status_tests
+  tests/HormuzStatusTests.cpp
+  src/HormuzStatus.cpp
+)
+
+target_include_directories(hormuz_status_tests PRIVATE
+  include/
+)
+
+set_target_properties(hormuz_status_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME hormuz_status_tests COMMAND hormuz_status_tests)
 
 add_executable(chatgpt_auth_tests
   tests/ChatGptAuthTests.cpp

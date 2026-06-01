@@ -408,6 +408,9 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         {"get_youtube_stream_status",
          "Check whether the tracked YouTube stream is currently live. If live, returns the current stream title, start time, and duration when available.",
          ""},
+        {"get_hormuz_strait_status",
+         "Check whether the Strait of Hormuz is currently open according to hormuzstatus.com. Returns structured JSON with status, answer, is_open, label, and detail.",
+         ""},
         {"get_webpage_text",
          "Fetch and extract readable text from a public webpage. Use this when the user asks to summarize or answer questions about a URL.",
          R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https URL to fetch"}},"required":["url"]})"},
@@ -561,6 +564,10 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
           payload["duration_seconds"] = *status.duration_seconds;
         }
         co_return payload.dump();
+      }
+
+      if (tool_name == "get_hormuz_strait_status") {
+        co_return co_await web_page_service.fetch_hormuz_strait_status();
       }
 
       auto it = tool_to_sheet.find(tool_name);
