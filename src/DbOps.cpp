@@ -147,6 +147,7 @@ pqxx::result fetch_channel_history(dpp::snowflake channel_id, int max_history) {
                     "     , u.user_snowflake_id "
                     "     , m.content "
                     "     , m.image_descriptions "
+                    "     , m.sentiment "
                     "     , m.created_at "
                     "from message m "
                     "inner join discord_user u on (u.user_id = m.user_id) "
@@ -154,6 +155,14 @@ pqxx::result fetch_channel_history(dpp::snowflake channel_id, int max_history) {
                     "where c.channel_snowflake_id = $1 "
                     "order by m.message_id desc limit $2",
                     std::stol(channel_id.str()), max_history);
+}
+
+void ensure_message_sentiment_columns() {
+  auto &db = Database::instance();
+  db.execute("alter table message "
+             "add column if not exists sentiment jsonb, "
+             "add column if not exists sentiment_model text, "
+             "add column if not exists sentiment_evaluated_at timestamptz");
 }
 
 pqxx::result fetch_reactions_for_message(std::uint64_t message_id) {
@@ -180,8 +189,19 @@ std::optional<std::uint64_t> find_message_id(dpp::snowflake message_snowflake) {
 
 void update_message_content(std::uint64_t message_id, const std::string &content) {
   auto &db = Database::instance();
-  db.execute("update message set content = $1 where message_id = $2", content,
-             message_id);
+  db.execute("update message set content = $1, sentiment = null, "
+             "sentiment_model = null, sentiment_evaluated_at = null "
+             "where message_id = $2",
+             content, message_id);
+}
+
+void update_message_sentiment(std::uint64_t message_id,
+                              const std::string &sentiment_json,
+                              const std::string &model) {
+  auto &db = Database::instance();
+  db.execute("update message set sentiment = $1::jsonb, sentiment_model = $2, "
+             "sentiment_evaluated_at = now() where message_id = $3",
+             sentiment_json, model, message_id);
 }
 
 StoredMessageIds store_message(const Message &message, dpp::guild *server,

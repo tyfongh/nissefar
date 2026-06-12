@@ -1,4 +1,5 @@
 #include <Database.h>
+#include <DbOps.h>
 #include <DiscordEventService.h>
 #include <CalculationService.h>
 #include <ChatGptAuth.h>
@@ -110,10 +111,12 @@ dpp::task<void> Nissefar::setup_slashcommands() {
 void Nissefar::run() {
 
   auto &db = Database::instance();
-  if (db.initialize(config.db_connection_string))
+  if (db.initialize(config.db_connection_string)) {
     std::cout << "Connected to db" << std::endl;
-  else
+    dbops::ensure_message_sentiment_columns();
+  } else {
     std::cout << "Failed to connect to db" << std::endl;
+  }
 
   bot->on_message_create(
       [this](const dpp::message_create_t &event) -> dpp::task<void> {

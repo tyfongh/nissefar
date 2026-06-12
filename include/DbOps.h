@@ -9,9 +9,13 @@
 namespace dbops {
 
 pqxx::result fetch_channel_history(dpp::snowflake channel_id, int max_history);
+void ensure_message_sentiment_columns();
 pqxx::result fetch_reactions_for_message(std::uint64_t message_id);
 std::optional<std::uint64_t> find_message_id(dpp::snowflake message_snowflake);
 void update_message_content(std::uint64_t message_id, const std::string &content);
+void update_message_sentiment(std::uint64_t message_id,
+                              const std::string &sentiment_json,
+                              const std::string &model);
 
 struct StoredMessageIds {
   int server_id;

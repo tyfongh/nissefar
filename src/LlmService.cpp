@@ -240,6 +240,32 @@ std::string LlmService::generate_text(const std::string &prompt,
   return answer;
 }
 
+std::optional<SentimentEvaluation>
+LlmService::evaluate_sentiment(const Message &message) const {
+  std::string image_context;
+  for (std::size_t i = 0; i < message.image_descriptions.size(); ++i) {
+    image_context += std::format("\nImage {} description: {}", i,
+                                 message.image_descriptions[i]);
+  }
+
+  const std::string prompt =
+      "Evaluate the sentiment/tone of this Discord message.\n"
+      "Return only valid JSON with this exact shape:\n"
+      R"({"label":"positive|neutral|negative|mixed|unclear","score":0.0,"tone":["short lowercase tags"],"confidence":0.0})"
+      "\nRules:\n"
+      "- label must be one of positive, neutral, negative, mixed, unclear.\n"
+      "- score must be from -1.0 negative to 1.0 positive.\n"
+      "- confidence must be from 0.0 to 1.0.\n"
+      "- tone must contain at most five short lowercase tags.\n"
+      "- Do not include markdown or explanation.\n\n"
+      "Message content:\n" +
+      message.content + image_context;
+
+  const std::string response =
+      generate_text(prompt, LlmImages{}, GenerationType::Sentiment);
+  return sentiment::parse_evaluation_json(response);
+}
+
 std::optional<LlmGeneratedImage>
 LlmService::generate_image(const std::string &prompt,
                            const LlmImages &imagelist) const {

@@ -10,4 +10,7 @@ create table message
   , reply_to_snowflake_id bigint
   , image_descriptions    text[] default '{}'
   , created_at            timestamptz not null default '2025-01-01 00:00:00+00'
+  , sentiment             jsonb
+  , sentiment_model       text
+  , sentiment_evaluated_at timestamptz
 );

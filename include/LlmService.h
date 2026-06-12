@@ -4,7 +4,9 @@
 #include <Config.h>
 #include <ChatGptAuth.h>
 #include <CodexClient.h>
+#include <Domain.h>
 #include <LlmTypes.h>
+#include <Sentiment.h>
 #include <dpp/dpp.h>
 #include <functional>
 #include <string>
@@ -12,7 +14,7 @@
 
 class LlmService {
 public:
-  enum class GenerationType { TextReply, Diff, ImageDescription };
+  enum class GenerationType { TextReply, Diff, ImageDescription, Sentiment };
 
   struct ToolDefinition {
     std::string name;
@@ -29,6 +31,9 @@ public:
 
   std::optional<LlmGeneratedImage>
   generate_image(const std::string &prompt, const LlmImages &imagelist) const;
+
+  std::optional<SentimentEvaluation>
+  evaluate_sentiment(const Message &message) const;
 
   dpp::task<std::string>
   generate_text_with_tools(const std::string &prompt,

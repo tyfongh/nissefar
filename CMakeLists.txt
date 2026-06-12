@@ -34,6 +34,7 @@ add_executable(${PROJECT_NAME}
   src/UrlSafety.cpp
   src/HtmlTextExtract.cpp
   src/HormuzStatus.cpp
+  src/Sentiment.cpp
   src/WebPageService.cpp
   src/VideoSummaryService.cpp
   src/CalculationService.cpp
@@ -174,6 +175,22 @@ set_target_properties(hormuz_status_tests PROPERTIES
 )
 
 add_test(NAME hormuz_status_tests COMMAND hormuz_status_tests)
+
+add_executable(sentiment_tests
+  tests/SentimentTests.cpp
+  src/Sentiment.cpp
+)
+
+target_include_directories(sentiment_tests PRIVATE
+  include/
+)
+
+set_target_properties(sentiment_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME sentiment_tests COMMAND sentiment_tests)
 
 add_executable(chatgpt_auth_tests
   tests/ChatGptAuthTests.cpp

@@ -1,6 +1,7 @@
 #include <AdminUtils.h>
 #include <DbOps.h>
 #include <DiscordEventService.h>
+#include <Sentiment.h>
 #include <AnalyticsQuery.h>
 #include <Formatting.h>
 #include <GoogleDocsService.h>
@@ -262,6 +263,14 @@ DiscordEventService::format_message_history(dpp::snowflake channel_id) const {
       pqxx::array<std::string> image_descriptions =
           message["image_descriptions"].as_sql_array<std::string>();
 
+      if (!message["sentiment"].is_null()) {
+        const std::string sentiment_context =
+            sentiment::format_for_history(message["sentiment"].as<std::string>());
+        if (!sentiment_context.empty()) {
+          message_history += std::format("\n{}", sentiment_context);
+        }
+      }
+
       for (int i = 0; i < image_descriptions.size(); ++i) {
         message_history +=
             std::format("\nImage {}, {}", i, image_descriptions[i]);
@@ -294,6 +303,22 @@ void DiscordEventService::store_message(const Message &message, dpp::guild *serv
           std::format("server_id: {} channel id: {} user_id: {}, message_id {}",
                       ids.server_id, ids.channel_id, ids.user_id,
                       ids.message_id));
+
+  const auto evaluation = llm_service.evaluate_sentiment(message);
+  if (!evaluation.has_value()) {
+    bot.log(dpp::ll_warning,
+            std::format("Sentiment evaluation failed message_id={} snowflake={}",
+                        ids.message_id, message.msg_id.str()));
+    return;
+  }
+
+  const std::string sentiment_json = sentiment::to_json_string(*evaluation);
+  dbops::update_message_sentiment(ids.message_id, sentiment_json,
+                                  config.chatgpt_model);
+  bot.log(dpp::ll_info,
+          std::format("Sentiment message_id={} snowflake={} {}",
+                      ids.message_id, message.msg_id.str(),
+                      sentiment::format_for_log(*evaluation)));
 }
 
 dpp::task<void>
@@ -768,6 +793,26 @@ dpp::task<void> DiscordEventService::handle_message_update(
   auto message_id = dbops::find_message_id(event.msg.id);
   if (message_id.has_value()) {
     dbops::update_message_content(*message_id, event.msg.content);
+    const Message updated_message{event.msg.id,
+                                  event.msg.message_reference.message_id,
+                                  event.msg.content,
+                                  event.msg.author.id,
+                                  static_cast<std::int64_t>(event.msg.sent),
+                                  {}};
+    const auto evaluation = llm_service.evaluate_sentiment(updated_message);
+    if (!evaluation.has_value()) {
+      bot.log(dpp::ll_warning,
+              std::format("Sentiment evaluation failed message_id={} snowflake={}",
+                          *message_id, event.msg.id.str()));
+    } else {
+      dbops::update_message_sentiment(*message_id,
+                                      sentiment::to_json_string(*evaluation),
+                                      config.chatgpt_model);
+      bot.log(dpp::ll_info,
+              std::format("Sentiment message_id={} snowflake={} {}",
+                          *message_id, event.msg.id.str(),
+                          sentiment::format_for_log(*evaluation)));
+    }
   }
   co_return;
 }
