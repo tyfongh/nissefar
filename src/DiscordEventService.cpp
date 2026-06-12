@@ -798,7 +798,7 @@ dpp::task<void> DiscordEventService::handle_message_update(
                                   event.msg.content,
                                   event.msg.author.id,
                                   static_cast<std::int64_t>(event.msg.sent),
-                                  {}};
+                                  dbops::fetch_message_image_descriptions(*message_id)};
     const auto evaluation = llm_service.evaluate_sentiment(updated_message);
     if (!evaluation.has_value()) {
       bot.log(dpp::ll_warning,

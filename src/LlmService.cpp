@@ -243,9 +243,12 @@ std::string LlmService::generate_text(const std::string &prompt,
 std::optional<SentimentEvaluation>
 LlmService::evaluate_sentiment(const Message &message) const {
   std::string image_context;
-  for (std::size_t i = 0; i < message.image_descriptions.size(); ++i) {
-    image_context += std::format("\nImage {} description: {}", i,
-                                 message.image_descriptions[i]);
+  if (!message.image_descriptions.empty()) {
+    image_context = "\n\nAttached image descriptions:";
+    for (std::size_t i = 0; i < message.image_descriptions.size(); ++i) {
+      image_context += std::format("\nImage {}: {}", i,
+                                   message.image_descriptions[i]);
+    }
   }
 
   const std::string prompt =
@@ -257,6 +260,7 @@ LlmService::evaluate_sentiment(const Message &message) const {
       "- score must be from -1.0 negative to 1.0 positive.\n"
       "- confidence must be from 0.0 to 1.0.\n"
       "- tone must contain at most five short lowercase tags.\n"
+      "- Consider both the message text and any attached image descriptions.\n"
       "- Do not include markdown or explanation.\n\n"
       "Message content:\n" +
       message.content + image_context;

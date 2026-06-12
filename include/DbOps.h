@@ -12,6 +12,7 @@ pqxx::result fetch_channel_history(dpp::snowflake channel_id, int max_history);
 void ensure_message_sentiment_columns();
 pqxx::result fetch_reactions_for_message(std::uint64_t message_id);
 std::optional<std::uint64_t> find_message_id(dpp::snowflake message_snowflake);
+std::vector<std::string> fetch_message_image_descriptions(std::uint64_t message_id);
 void update_message_content(std::uint64_t message_id, const std::string &content);
 void update_message_sentiment(std::uint64_t message_id,
                               const std::string &sentiment_json,

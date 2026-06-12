@@ -187,6 +187,23 @@ std::optional<std::uint64_t> find_message_id(dpp::snowflake message_snowflake) {
   return res[0].front().as<std::uint64_t>();
 }
 
+std::vector<std::string> fetch_message_image_descriptions(std::uint64_t message_id) {
+  auto &db = Database::instance();
+  auto res = db.execute("select image_descriptions from message where message_id = $1",
+                        message_id);
+  if (res.empty() || res.front()["image_descriptions"].is_null()) {
+    return {};
+  }
+
+  std::vector<std::string> descriptions;
+  pqxx::array<std::string> image_descriptions =
+      res.front()["image_descriptions"].as_sql_array<std::string>();
+  for (int i = 0; i < image_descriptions.size(); ++i) {
+    descriptions.push_back(image_descriptions[i]);
+  }
+  return descriptions;
+}
+
 void update_message_content(std::uint64_t message_id, const std::string &content) {
   auto &db = Database::instance();
   db.execute("update message set content = $1, sentiment = null, "
