@@ -140,6 +140,51 @@ Result post_request(const std::string &host, const std::string &user_agent,
   return finalize_result(curl, curl_headers, std::move(buffer), try_parse_json);
 }
 
+Result get_request(const std::string &host, const std::string &user_agent,
+                   int timeout_seconds, const std::string &path,
+                   const Headers &headers) {
+  (void)kCurlInitialized;
+
+  CURL *curl = curl_easy_init();
+  if (!curl) {
+    return {std::nullopt, "Failed to initialize libcurl."};
+  }
+
+  CurlBuffer buffer;
+  struct curl_slist *curl_headers = nullptr;
+  const std::string url = std::format("https://{}{}", host, path);
+
+  for (const auto &[name, value] : headers) {
+    curl_headers =
+        curl_slist_append(curl_headers, std::format("{}: {}", name, value).c_str());
+  }
+
+  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  if (curl_headers) {
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, curl_headers);
+  }
+  curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, timeout_seconds);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_seconds);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
+  curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback);
+  curl_easy_setopt(curl, CURLOPT_HEADERDATA, &buffer);
+  curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent.c_str());
+  curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+
+  const CURLcode code = curl_easy_perform(curl);
+  if (code != CURLE_OK) {
+    curl_slist_free_all(curl_headers);
+    curl_easy_cleanup(curl);
+    return {std::nullopt,
+            std::format("HTTP request failed: {}", curl_easy_strerror(code))};
+  }
+
+  return finalize_result(curl, curl_headers, std::move(buffer), true);
+}
+
 Result post_json_request(const std::string &host, const std::string &user_agent,
                          int timeout_seconds, const std::string &path,
                          const Json &body, const Headers &headers,
@@ -174,9 +219,13 @@ Result Client::post_json_stream(const std::string &path, const Json &body,
 }
 
 Result Client::post_form(const std::string &path, const std::string &body,
-                         const Headers &headers) const {
+                          const Headers &headers) const {
   return post_form_request(host_, user_agent_, timeout_seconds_, path, body,
-                           headers);
+                            headers);
+}
+
+Result Client::get(const std::string &path, const Headers &headers) const {
+  return get_request(host_, user_agent_, timeout_seconds_, path, headers);
 }
 
 } // namespace http_json

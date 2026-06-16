@@ -10,6 +10,7 @@
 #include <WebPageService.h>
 #include <VideoSummaryService.h>
 #include <YoutubeService.h>
+#include <NordPoolService.h>
 
 #include <chrono>
 #include <algorithm>
@@ -219,12 +220,14 @@ DiscordEventService::DiscordEventService(
     const WebPageService &web_page_service,
     const YoutubeService &youtube_service,
     const VideoSummaryService &video_summary_service,
-    const CalculationService &calculation_service)
+    const CalculationService &calculation_service,
+    const NordPoolService &nord_pool_service)
     : config(config), bot(bot), llm_service(llm_service),
       google_docs_service(google_docs_service),
       web_page_service(web_page_service), youtube_service(youtube_service),
       video_summary_service(video_summary_service),
-      calculation_service(calculation_service) {}
+      calculation_service(calculation_service),
+      nord_pool_service(nord_pool_service) {}
 
 std::string
 DiscordEventService::format_message_history(dpp::snowflake channel_id) const {
@@ -447,7 +450,10 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
          R"({"type":"object","properties":{"scope":{"type":"string","enum":["channel","server"]},"kind":{"type":"string","enum":["leaderboard","time_series"]},"target":{"type":"string","enum":["reactions","messages"]},"group_by":{"type":"string","enum":["emoji","message","reactor","recipient","author","day","week","month"]},"time_range":{"type":"string","enum":["all_time","last_7d","last_30d","this_month","last_month"]},"filters":{"type":"object","properties":{"emojis":{"type":"array","items":{"type":"string"}}}},"limit":{"type":"integer","minimum":1,"maximum":120}},"required":["kind","target","group_by"]})"},
         {"calculate_with_bc",
          "Evaluate a mathematical expression using bc -l for accurate calculations. Supports arithmetic and bc math functions like sqrt(x), l(x), e(x), s(x), c(x), a(x), j(n,x).",
-         R"({"type":"object","properties":{"expression":{"type":"string","description":"Mathematical expression to evaluate"},"scale":{"type":"integer","description":"Optional decimal precision (0-100). Defaults to 10."}},"required":["expression"]})"}};
+          R"({"type":"object","properties":{"expression":{"type":"string","description":"Mathematical expression to evaluate"},"scale":{"type":"integer","description":"Optional decimal precision (0-100). Defaults to 10."}},"required":["expression"]})"},
+        {"get_nordpool_spot_price",
+         "Get Nord Pool day-ahead spot electricity price data for one delivery area in EUR/MWh. Use this for questions like current spot price, min/max/average spot price, or yesterday's average for areas such as NO2, NO1, SE3, DK1, FI, GER. Dates and times are interpreted in Europe/Oslo. For 'right now', pass date='today', time='now', statistic='price' or 'all'. For daily average/min/max, omit time and pass statistic='average', 'min', or 'max'.",
+         R"({"type":"object","properties":{"area":{"type":"string","description":"Nord Pool delivery area code, e.g. NO2 or GER"},"date":{"type":"string","description":"today, yesterday, or yyyy-MM-dd in Europe/Oslo"},"time":{"type":"string","description":"Optional HH:mm Europe/Oslo time or now"},"statistic":{"type":"string","enum":["price","min","max","average","all"],"description":"Which value to return. Defaults to all."}},"required":["area","date"]})"}};
 
     const auto webpage_tool_calls = std::make_shared<int>(0);
     const auto video_tool_calls = std::make_shared<int>(0);
@@ -547,6 +553,41 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         co_return co_await calculation_service.calculate_with_bc(expression, scale);
       }
 
+      if (tool_name == "get_nordpool_spot_price") {
+        NordPoolService::Request request;
+        request.statistic = "all";
+        try {
+          Json args = Json::parse(arguments_json);
+          if (args.contains("area") && args["area"].is_string()) {
+            request.area = args["area"].get<std::string>();
+          }
+          if (args.contains("date") && args["date"].is_string()) {
+            request.date = args["date"].get<std::string>();
+          }
+          if (args.contains("time") && args["time"].is_string()) {
+            request.time = args["time"].get<std::string>();
+          }
+          if (args.contains("statistic") && args["statistic"].is_string()) {
+            request.statistic = args["statistic"].get<std::string>();
+          }
+        } catch (...) {
+          co_return "Tool error: invalid tool arguments JSON.";
+        }
+
+        if (request.area.empty()) {
+          co_return "Tool error: missing required argument 'area'.";
+        }
+        if (request.date.empty()) {
+          request.date = "today";
+        }
+
+        const auto result = nord_pool_service.lookup(request);
+        if (!result.ok) {
+          co_return result.error;
+        }
+        co_return result.payload.dump();
+      }
+
       if (tool_name == "query_channel_analytics") {
         if (*analytics_tool_calls >= 1) {
           co_return "Tool error: only one analytics query is allowed per request. Use the previous tool result to answer.";
@@ -618,6 +659,10 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         std::format("Current time: {:%Y-%m-%d %H:%M}\n",
                     std::chrono::zoned_time{std::chrono::current_zone(),
                                             std::chrono::system_clock::now()}) +
+        std::format("Current Europe/Oslo time: {:%Y-%m-%d %H:%M %Z}\n",
+                    std::chrono::zoned_time{
+                        std::chrono::locate_zone("Europe/Oslo"),
+                        std::chrono::system_clock::now()}) +
         emoji_output_contract +
         guild_emoji_context +
         format_message_history(event.msg.channel_id) +

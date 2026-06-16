@@ -35,9 +35,10 @@ public:
   Result post_json(const std::string &path, const Json &body,
                    const Headers &headers = {}) const;
   Result post_json_stream(const std::string &path, const Json &body,
-                          const Headers &headers = {}) const;
+                           const Headers &headers = {}) const;
   Result post_form(const std::string &path, const std::string &body,
                    const Headers &headers = {}) const;
+  Result get(const std::string &path, const Headers &headers = {}) const;
 
 private:
   std::string host_;
