@@ -43,6 +43,21 @@ Json ote_payload() {
   })json");
 }
 
+Json spotovaelektrina_payload() {
+  return Json::parse(R"json({
+    "hoursToday": [
+      {"hour":0,"minute":0,"priceEur":100.0,"priceCZK":2420,"level":"low"},
+      {"hour":0,"minute":15,"priceEur":120.0,"priceCZK":2904,"level":"medium"},
+      {"hour":0,"minute":30,"priceEur":80.0,"priceCZK":1936,"level":"low"}
+    ],
+    "hoursTomorrow": [
+      {"hour":0,"minute":0,"priceEur":154.13,"priceCZK":3730,"level":"low"},
+      {"hour":0,"minute":15,"priceEur":148.62,"priceCZK":3597,"level":"low"},
+      {"hour":0,"minute":30,"priceEur":143.64,"priceCZK":3477,"level":"low"}
+    ]
+  })json");
+}
+
 std::chrono::system_clock::time_point utc(int year, unsigned month, unsigned day,
                                           int hour, int minute) {
   return std::chrono::sys_days{std::chrono::year{year} /
@@ -125,6 +140,59 @@ void test_ote_60min_reference() {
   assert(result.payload["period_count"] == 1);
 }
 
+void test_spotovaelektrina_today_lookup() {
+  SpotPriceService::Request request{.area = "CZ",
+                                    .date = "2026-06-22",
+                                    .time = "00:20",
+                                    .statistic = "all",
+                                    .source = "spotovaelektrina",
+                                    .time_resolution = "PT15M"};
+
+  const auto result = SpotPriceService::lookup_spotovaelektrina_from_json(
+      spotovaelektrina_payload(), request, utc(2026, 6, 22, 12, 0));
+
+  assert(result.ok);
+  assert(result.payload["area"] == "CZ");
+  assert(result.payload["source"] == "spotovaelektrina");
+  assert(result.payload["timezone"] == "Europe/Prague");
+  assert(result.payload["price"] == 120.0);
+  assert(result.payload["min_price"] == 80.0);
+  assert(result.payload["max_price"] == 120.0);
+  assert(result.payload["average_price"] == 100.0);
+  assert(result.payload["period_count"] == 3);
+  assert(result.payload["time_resolution"] == "PT15M");
+}
+
+void test_spotovaelektrina_tomorrow_lookup() {
+  SpotPriceService::Request request{.area = "CZ",
+                                    .date = "2026-06-23",
+                                    .time = "00:35",
+                                    .statistic = "price",
+                                    .source = "spotovaelektrina",
+                                    .time_resolution = "PT15M"};
+
+  const auto result = SpotPriceService::lookup_spotovaelektrina_from_json(
+      spotovaelektrina_payload(), request, utc(2026, 6, 22, 12, 0));
+
+  assert(result.ok);
+  assert(result.payload["price"] == 143.64);
+  assert(result.payload["date"] == "2026-06-23");
+}
+
+void test_spotovaelektrina_rejects_other_dates() {
+  SpotPriceService::Request request{.area = "CZ",
+                                    .date = "2026-06-21",
+                                    .time = "00:20",
+                                    .statistic = "price",
+                                    .source = "spotovaelektrina",
+                                    .time_resolution = "PT15M"};
+
+  const auto result = SpotPriceService::lookup_spotovaelektrina_from_json(
+      spotovaelektrina_payload(), request, utc(2026, 6, 22, 12, 0));
+
+  assert(!result.ok);
+}
+
 void test_local_date_supports_tomorrow_offset() {
   const auto now = utc(2026, 6, 22, 12, 0);
   assert(SpotPriceService::local_date(now, "Europe/Prague", 1) == "2026-06-23");
@@ -138,6 +206,9 @@ int main() {
   test_nord_pool_average_without_time();
   test_ote_price_lookup_by_prague_time();
   test_ote_60min_reference();
+  test_spotovaelektrina_today_lookup();
+  test_spotovaelektrina_tomorrow_lookup();
+  test_spotovaelektrina_rejects_other_dates();
   test_local_date_supports_tomorrow_offset();
   std::cout << "SpotPriceService tests passed\n";
   return 0;

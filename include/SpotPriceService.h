@@ -42,6 +42,9 @@ public:
   static LookupResult lookup_ote_from_json(
       const Json &data, const Request &request,
       std::chrono::system_clock::time_point now);
+  static LookupResult lookup_spotovaelektrina_from_json(
+      const Json &data, const Request &request,
+      std::chrono::system_clock::time_point now);
   static std::string local_date(std::chrono::system_clock::time_point now,
                                 const std::string &timezone,
                                 int day_offset = 0);
@@ -49,6 +52,7 @@ public:
 private:
   http_json::Client nord_pool_client;
   http_json::Client ote_client;
+  http_json::Client spotovaelektrina_client;
 };
 
 #endif // SPOTPRICESERVICE_H

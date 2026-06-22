@@ -217,6 +217,44 @@ ote_entries(const Json &data, const std::string &date,
   return entries;
 }
 
+std::vector<SpotPriceService::PriceEntry>
+spotovaelektrina_entries(const Json &data, const std::string &date,
+                         const std::string &array_name) {
+  std::vector<SpotPriceService::PriceEntry> entries;
+  if (!data.contains(array_name) || !data[array_name].is_array()) {
+    return entries;
+  }
+
+  const auto *zone = std::chrono::locate_zone("Europe/Prague");
+  const auto day = std::chrono::local_days{
+      std::chrono::year{std::stoi(date.substr(0, 4))} /
+      std::chrono::month{static_cast<unsigned>(std::stoi(date.substr(5, 2)))} /
+      std::chrono::day{static_cast<unsigned>(std::stoi(date.substr(8, 2)))}};
+
+  for (const auto &point : data[array_name]) {
+    if (!point.contains("hour") || !point.contains("minute") ||
+        !point.contains("priceEur") || !point["hour"].is_number_integer() ||
+        !point["minute"].is_number_integer() || !point["priceEur"].is_number()) {
+      continue;
+    }
+
+    const int hour = point["hour"].get<int>();
+    const int minute = point["minute"].get<int>();
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      continue;
+    }
+
+    const auto start_local = day + std::chrono::hours{hour} +
+                             std::chrono::minutes{minute};
+    const auto start = zone->to_sys(start_local, std::chrono::choose::earliest);
+    const auto end = zone->to_sys(start_local + std::chrono::minutes{15},
+                                  std::chrono::choose::earliest);
+    entries.push_back({start, end, point["priceEur"].get<double>()});
+  }
+
+  return entries;
+}
+
 std::optional<SpotPriceService::PriceEntry>
 find_entry_at(const std::vector<SpotPriceService::PriceEntry> &entries,
               std::chrono::system_clock::time_point target) {
@@ -340,7 +378,8 @@ Json build_payload(const SpotPriceService::Request &request,
 
 SpotPriceService::SpotPriceService()
     : nord_pool_client("dataportal-api.nordpoolgroup.com", "nissefar/0.1", 15),
-      ote_client("www.ote-cr.cz", "nissefar/0.1", 15) {}
+      ote_client("www.ote-cr.cz", "nissefar/0.1", 15),
+      spotovaelektrina_client("spotovaelektrina.cz", "nissefar/0.1", 15) {}
 
 SpotPriceService::LookupResult SpotPriceService::lookup(const Request &request) const {
   Request normalized = request;
@@ -350,8 +389,9 @@ SpotPriceService::LookupResult SpotPriceService::lookup(const Request &request) 
   normalized.time_resolution = uppercase_ascii(normalized.time_resolution.empty() ? "PT15M" : normalized.time_resolution);
 
   if (normalized.source != "auto" && normalized.source != "nordpool" &&
-      normalized.source != "nord_pool" && normalized.source != "ote") {
-    return {false, "Tool error: source must be auto, nordpool, or ote.", Json::object()};
+      normalized.source != "nord_pool" && normalized.source != "ote" &&
+      normalized.source != "spotovaelektrina" && normalized.source != "cz") {
+    return {false, "Tool error: source must be auto, nordpool, ote, spotovaelektrina, or cz.", Json::object()};
   }
   if (normalized.statistic != "price" && normalized.statistic != "min" &&
       normalized.statistic != "max" && normalized.statistic != "average" &&
@@ -360,16 +400,19 @@ SpotPriceService::LookupResult SpotPriceService::lookup(const Request &request) 
   }
 
   const bool wants_ote = normalized.source == "ote" ||
+                         normalized.source == "spotovaelektrina" ||
+                         normalized.source == "cz" ||
                          (normalized.source == "auto" &&
                           (normalized.area == "CZ" || normalized.area == "OTE"));
   const std::string timezone = wants_ote ? "Europe/Prague" : "Europe/Oslo";
+  const auto now = std::chrono::system_clock::now();
 
   if (normalized.date == "today") {
-    normalized.date = local_date(std::chrono::system_clock::now(), timezone);
+    normalized.date = local_date(now, timezone);
   } else if (normalized.date == "tomorrow") {
-    normalized.date = local_date(std::chrono::system_clock::now(), timezone, 1);
+    normalized.date = local_date(now, timezone, 1);
   } else if (normalized.date == "yesterday") {
-    normalized.date = local_date(std::chrono::system_clock::now(), timezone, -1);
+    normalized.date = local_date(now, timezone, -1);
   }
 
   if (!is_valid_area(normalized.area)) {
@@ -388,6 +431,24 @@ SpotPriceService::LookupResult SpotPriceService::lookup(const Request &request) 
       return {false, "Tool error: OTE time_resolution must be PT15M or PT60M.", Json::object()};
     }
 
+    const bool is_today = normalized.date == local_date(now, "Europe/Prague");
+    const bool is_tomorrow = normalized.date == local_date(now, "Europe/Prague", 1);
+    if (normalized.time_resolution == "PT15M" && (is_today || is_tomorrow)) {
+      auto response = spotovaelektrina_client.get(
+          "/api/v1/price/get-prices-json-qh", {{"Accept", "application/json"}});
+      if (!response.ok()) {
+        return {false, std::format("Tool error: SpotovaElektrina request failed: {}", response.error), Json::object()};
+      }
+      if (response.response->status < 200 || response.response->status >= 300) {
+        return {false, std::format("Tool error: SpotovaElektrina returned HTTP {}.", response.response->status), Json::object()};
+      }
+      if (!response.response->json.has_value()) {
+        return {false, "Tool error: SpotovaElektrina response did not contain JSON.", Json::object()};
+      }
+      return lookup_spotovaelektrina_from_json(*response.response->json, normalized,
+                                               now);
+    }
+
     const std::string path =
         std::format("/pw-data/chart-data/01?report_date={}&time_resolution={}&language=en",
                     query_escape(normalized.date), query_escape(normalized.time_resolution));
@@ -401,8 +462,7 @@ SpotPriceService::LookupResult SpotPriceService::lookup(const Request &request) 
     if (!response.response->json.has_value()) {
       return {false, "Tool error: OTE response did not contain JSON.", Json::object()};
     }
-    return lookup_ote_from_json(*response.response->json, normalized,
-                                std::chrono::system_clock::now());
+    return lookup_ote_from_json(*response.response->json, normalized, now);
   }
 
   if (normalized.source == "ote") {
@@ -423,8 +483,7 @@ SpotPriceService::LookupResult SpotPriceService::lookup(const Request &request) 
     return {false, "Tool error: Nord Pool response did not contain JSON.", Json::object()};
   }
 
-  return lookup_nord_pool_from_json(*response.response->json, normalized,
-                                    std::chrono::system_clock::now());
+  return lookup_nord_pool_from_json(*response.response->json, normalized, now);
 }
 
 SpotPriceService::LookupResult SpotPriceService::lookup_nord_pool_from_json(
@@ -480,6 +539,41 @@ SpotPriceService::LookupResult SpotPriceService::lookup_ote_from_json(
   if (data.contains("graph") && data["graph"].contains("title") && data["graph"]["title"].is_string()) {
     payload["title"] = data["graph"]["title"].get<std::string>();
   }
+  return {true, {}, std::move(payload)};
+}
+
+SpotPriceService::LookupResult SpotPriceService::lookup_spotovaelektrina_from_json(
+    const Json &data, const Request &request,
+    std::chrono::system_clock::time_point now) {
+  Request normalized = request;
+  normalized.area = "CZ";
+  normalized.statistic = lowercase_ascii(normalized.statistic.empty() ? "all" : normalized.statistic);
+  normalized.time_resolution = "PT15M";
+
+  const std::string today = local_date(now, "Europe/Prague");
+  const std::string tomorrow = local_date(now, "Europe/Prague", 1);
+  std::string array_name;
+  if (normalized.date == today) {
+    array_name = "hoursToday";
+  } else if (normalized.date == tomorrow) {
+    array_name = "hoursTomorrow";
+  } else {
+    return {false, "Tool error: SpotovaElektrina only provides CZ prices for today and tomorrow.", Json::object()};
+  }
+
+  const auto entries = spotovaelektrina_entries(data, normalized.date, array_name);
+  if (entries.empty()) {
+    return {false, "Tool error: no SpotovaElektrina price entries found for CZ.", Json::object()};
+  }
+
+  Json payload = build_payload(normalized, entries, now, "spotovaelektrina",
+                               "DayAhead", "Europe/Prague");
+  if (payload.contains("error")) {
+    return {false, payload["error"].get<std::string>(), Json::object()};
+  }
+  payload["time_resolution"] = "PT15M";
+  payload["requested_statistic"] = normalized.statistic;
+  payload["provider_url"] = "https://spotovaelektrina.cz/api/v1/price/get-prices-json-qh";
   return {true, {}, std::move(payload)};
 }
 
