@@ -565,7 +565,10 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
             request.date = args["date"].get<std::string>();
           }
           if (args.contains("time") && args["time"].is_string()) {
-            request.time = args["time"].get<std::string>();
+            const auto time = args["time"].get<std::string>();
+            if (!time.empty()) {
+              request.time = time;
+            }
           }
           if (args.contains("statistic") && args["statistic"].is_string()) {
             request.statistic = args["statistic"].get<std::string>();

@@ -85,6 +85,18 @@ std::string format_local(std::chrono::system_clock::time_point value,
   return std::format("{:%Y-%m-%d %H:%M %Z}", zoned);
 }
 
+std::string format_local_date(std::chrono::system_clock::time_point value,
+                              const std::string &timezone) {
+  const auto *zone = std::chrono::locate_zone(timezone);
+  const std::chrono::zoned_time zoned{zone, value};
+  return std::format("{:%Y-%m-%d}", zoned);
+}
+
+bool has_explicit_time(const SpotPriceService::Request &request) {
+  return request.time.has_value() && !request.time->empty() &&
+         lowercase_ascii(*request.time) != "now";
+}
+
 std::optional<std::chrono::system_clock::time_point>
 local_time_to_sys(const std::string &date, const std::string &time,
                   const std::string &timezone) {
@@ -345,7 +357,11 @@ Json build_payload(const SpotPriceService::Request &request,
   payload["average_price"] = round_2(average_price);
   payload["period_count"] = entries.size();
 
-  if (request.statistic == "price" || request.statistic == "all") {
+  const bool include_price = request.statistic == "price" ||
+                             (request.statistic == "all" &&
+                              (has_explicit_time(request) ||
+                               request.date == format_local_date(now, timezone)));
+  if (include_price) {
     const auto target = target_time_for_request(request, now, timezone);
     if (!target.has_value()) {
       payload["error"] = "Tool error: time must be HH:mm, now, or omitted.";

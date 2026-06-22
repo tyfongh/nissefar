@@ -101,6 +101,22 @@ void test_nord_pool_average_without_time() {
   assert(result.payload["average_price"] == 101.23);
 }
 
+void test_nord_pool_tomorrow_all_without_time_skips_price() {
+  SpotPriceService::Request request{.area = "NO2",
+                                    .date = "2026-06-16",
+                                    .time = "",
+                                    .statistic = "all"};
+
+  const auto result = SpotPriceService::lookup_nord_pool_from_json(
+      nord_pool_payload(), request, utc(2026, 6, 15, 12, 0));
+
+  assert(result.ok);
+  assert(result.payload["min_price"] == 80.0);
+  assert(result.payload["max_price"] == 120.0);
+  assert(result.payload["average_price"] == 101.23);
+  assert(!result.payload.contains("price"));
+}
+
 void test_ote_price_lookup_by_prague_time() {
   SpotPriceService::Request request{.area = "CZ",
                                     .date = "2026-06-23",
@@ -179,6 +195,24 @@ void test_spotovaelektrina_tomorrow_lookup() {
   assert(result.payload["date"] == "2026-06-23");
 }
 
+void test_spotovaelektrina_tomorrow_all_without_time_skips_price() {
+  SpotPriceService::Request request{.area = "CZ",
+                                    .date = "2026-06-23",
+                                    .time = "",
+                                    .statistic = "all",
+                                    .source = "spotovaelektrina",
+                                    .time_resolution = "PT15M"};
+
+  const auto result = SpotPriceService::lookup_spotovaelektrina_from_json(
+      spotovaelektrina_payload(), request, utc(2026, 6, 22, 12, 0));
+
+  assert(result.ok);
+  assert(result.payload["min_price"] == 143.64);
+  assert(result.payload["max_price"] == 154.13);
+  assert(result.payload["average_price"] == 148.8);
+  assert(!result.payload.contains("price"));
+}
+
 void test_spotovaelektrina_rejects_other_dates() {
   SpotPriceService::Request request{.area = "CZ",
                                     .date = "2026-06-21",
@@ -204,10 +238,12 @@ void test_local_date_supports_tomorrow_offset() {
 int main() {
   test_nord_pool_price_lookup_by_oslo_time();
   test_nord_pool_average_without_time();
+  test_nord_pool_tomorrow_all_without_time_skips_price();
   test_ote_price_lookup_by_prague_time();
   test_ote_60min_reference();
   test_spotovaelektrina_today_lookup();
   test_spotovaelektrina_tomorrow_lookup();
+  test_spotovaelektrina_tomorrow_all_without_time_skips_price();
   test_spotovaelektrina_rejects_other_dates();
   test_local_date_supports_tomorrow_offset();
   std::cout << "SpotPriceService tests passed\n";
