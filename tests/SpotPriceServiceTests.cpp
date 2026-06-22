@@ -101,6 +101,25 @@ void test_nord_pool_average_without_time() {
   assert(result.payload["average_price"] == 101.23);
 }
 
+void test_nord_pool_table() {
+  SpotPriceService::Request request{.area = "NO2",
+                                    .date = "2026-06-16",
+                                    .time = std::nullopt,
+                                    .statistic = "table"};
+
+  const auto result = SpotPriceService::lookup_nord_pool_from_json(
+      nord_pool_payload(), request, utc(2026, 6, 15, 22, 10));
+
+  assert(result.ok);
+  assert(result.payload.contains("periods"));
+  assert(result.payload["periods"].is_array());
+  assert(result.payload["periods"].size() == 3);
+  assert(result.payload["periods"][0]["price"] == 100.0);
+  assert(result.payload["periods"][1]["price"] == 120.0);
+  assert(result.payload["periods"][2]["price"] == 80.0);
+  assert(!result.payload.contains("price"));
+}
+
 void test_nord_pool_tomorrow_all_without_time_skips_price() {
   SpotPriceService::Request request{.area = "NO2",
                                     .date = "2026-06-16",
@@ -154,6 +173,27 @@ void test_ote_60min_reference() {
   assert(result.ok);
   assert(result.payload["price"] == 146.32);
   assert(result.payload["period_count"] == 1);
+}
+
+void test_ote_hourly_table() {
+  SpotPriceService::Request request{.area = "CZ",
+                                    .date = "2026-06-23",
+                                    .time = std::nullopt,
+                                    .statistic = "table",
+                                    .source = "ote",
+                                    .time_resolution = "PT60M"};
+
+  const auto result = SpotPriceService::lookup_ote_from_json(
+      ote_payload(), request, utc(2026, 6, 22, 22, 5));
+
+  assert(result.ok);
+  assert(result.payload["period_count"] == 1);
+  assert(result.payload.contains("periods"));
+  assert(result.payload["periods"].is_array());
+  assert(result.payload["periods"].size() == 1);
+  assert(result.payload["periods"][0]["price"] == 146.32);
+  assert(result.payload["periods"][0].contains("period_start_local"));
+  assert(!result.payload.contains("price"));
 }
 
 void test_spotovaelektrina_today_lookup() {
@@ -213,6 +253,27 @@ void test_spotovaelektrina_tomorrow_all_without_time_skips_price() {
   assert(!result.payload.contains("price"));
 }
 
+void test_spotovaelektrina_quarter_hour_table() {
+  SpotPriceService::Request request{.area = "CZ",
+                                    .date = "2026-06-23",
+                                    .time = std::nullopt,
+                                    .statistic = "table",
+                                    .source = "spotovaelektrina",
+                                    .time_resolution = "PT15M"};
+
+  const auto result = SpotPriceService::lookup_spotovaelektrina_from_json(
+      spotovaelektrina_payload(), request, utc(2026, 6, 22, 12, 0));
+
+  assert(result.ok);
+  assert(result.payload.contains("periods"));
+  assert(result.payload["periods"].is_array());
+  assert(result.payload["periods"].size() == 3);
+  assert(result.payload["periods"][0]["price"] == 154.13);
+  assert(result.payload["periods"][1]["price"] == 148.62);
+  assert(result.payload["periods"][2]["price"] == 143.64);
+  assert(!result.payload.contains("price"));
+}
+
 void test_spotovaelektrina_rejects_other_dates() {
   SpotPriceService::Request request{.area = "CZ",
                                     .date = "2026-06-21",
@@ -238,12 +299,15 @@ void test_local_date_supports_tomorrow_offset() {
 int main() {
   test_nord_pool_price_lookup_by_oslo_time();
   test_nord_pool_average_without_time();
+  test_nord_pool_table();
   test_nord_pool_tomorrow_all_without_time_skips_price();
   test_ote_price_lookup_by_prague_time();
   test_ote_60min_reference();
+  test_ote_hourly_table();
   test_spotovaelektrina_today_lookup();
   test_spotovaelektrina_tomorrow_lookup();
   test_spotovaelektrina_tomorrow_all_without_time_skips_price();
+  test_spotovaelektrina_quarter_hour_table();
   test_spotovaelektrina_rejects_other_dates();
   test_local_date_supports_tomorrow_offset();
   std::cout << "SpotPriceService tests passed\n";

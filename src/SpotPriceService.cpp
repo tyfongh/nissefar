@@ -357,6 +357,19 @@ Json build_payload(const SpotPriceService::Request &request,
   payload["average_price"] = round_2(average_price);
   payload["period_count"] = entries.size();
 
+  if (request.statistic == "table") {
+    payload["periods"] = Json::array();
+    for (const auto &entry : entries) {
+      Json period = Json::object();
+      period["period_start_utc"] = format_utc(entry.delivery_start);
+      period["period_end_utc"] = format_utc(entry.delivery_end);
+      period["period_start_local"] = format_local(entry.delivery_start, timezone);
+      period["period_end_local"] = format_local(entry.delivery_end, timezone);
+      period["price"] = round_2(entry.price);
+      payload["periods"].push_back(std::move(period));
+    }
+  }
+
   const bool include_price = request.statistic == "price" ||
                              (request.statistic == "all" &&
                               (has_explicit_time(request) ||
@@ -411,8 +424,8 @@ SpotPriceService::LookupResult SpotPriceService::lookup(const Request &request) 
   }
   if (normalized.statistic != "price" && normalized.statistic != "min" &&
       normalized.statistic != "max" && normalized.statistic != "average" &&
-      normalized.statistic != "all") {
-    return {false, "Tool error: statistic must be price, min, max, average, or all.", Json::object()};
+      normalized.statistic != "all" && normalized.statistic != "table") {
+    return {false, "Tool error: statistic must be price, min, max, average, all, or table.", Json::object()};
   }
 
   const bool wants_ote = normalized.source == "ote" ||
