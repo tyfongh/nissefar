@@ -10,7 +10,7 @@
 #include <WebPageService.h>
 #include <VideoSummaryService.h>
 #include <YoutubeService.h>
-#include <NordPoolService.h>
+#include <SpotPriceService.h>
 
 #include <chrono>
 #include <algorithm>
@@ -221,13 +221,13 @@ DiscordEventService::DiscordEventService(
     const YoutubeService &youtube_service,
     const VideoSummaryService &video_summary_service,
     const CalculationService &calculation_service,
-    const NordPoolService &nord_pool_service)
+    const SpotPriceService &spot_price_service)
     : config(config), bot(bot), llm_service(llm_service),
       google_docs_service(google_docs_service),
       web_page_service(web_page_service), youtube_service(youtube_service),
       video_summary_service(video_summary_service),
       calculation_service(calculation_service),
-      nord_pool_service(nord_pool_service) {}
+      spot_price_service(spot_price_service) {}
 
 std::string
 DiscordEventService::format_message_history(dpp::snowflake channel_id) const {
@@ -451,9 +451,9 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         {"calculate_with_bc",
          "Evaluate a mathematical expression using bc -l for accurate calculations. Supports arithmetic and bc math functions like sqrt(x), l(x), e(x), s(x), c(x), a(x), j(n,x).",
           R"({"type":"object","properties":{"expression":{"type":"string","description":"Mathematical expression to evaluate"},"scale":{"type":"integer","description":"Optional decimal precision (0-100). Defaults to 10."}},"required":["expression"]})"},
-        {"get_nordpool_spot_price",
-         "Get Nord Pool day-ahead spot electricity price data for one delivery area in EUR/MWh. Use this for questions like current spot price, min/max/average spot price, or yesterday's average for areas such as NO2, NO1, SE3, DK1, FI, GER. Dates and times are interpreted in Europe/Oslo. For 'right now', pass date='today', time='now', statistic='price' or 'all'. For daily average/min/max, omit time and pass statistic='average', 'min', or 'max'.",
-         R"({"type":"object","properties":{"area":{"type":"string","description":"Nord Pool delivery area code, e.g. NO2 or GER"},"date":{"type":"string","description":"today, yesterday, or yyyy-MM-dd in Europe/Oslo"},"time":{"type":"string","description":"Optional HH:mm Europe/Oslo time or now"},"statistic":{"type":"string","enum":["price","min","max","average","all"],"description":"Which value to return. Defaults to all."}},"required":["area","date"]})"}};
+        {"get_spot_price",
+         "Get day-ahead spot electricity price data in EUR/MWh. Use Nord Pool for area codes such as NO2, NO1, SE3, DK1, FI, GER. Use OTE for Czech data when the user asks for OTE or CZ; pass area='CZ' and optionally source='ote'. Dates/times use Europe/Oslo for Nord Pool and Europe/Prague for OTE. For 'right now', pass date='today', time='now', statistic='price' or 'all'. For daily average/min/max, omit time and pass statistic='average', 'min', or 'max'. OTE supports time_resolution PT15M or PT60M, default PT15M.",
+          R"({"type":"object","properties":{"area":{"type":"string","description":"Delivery area code. Use Nord Pool codes like NO2 or GER, or CZ/OTE for Czech OTE data."},"date":{"type":"string","description":"today, yesterday, or yyyy-MM-dd in the selected source timezone"},"time":{"type":"string","description":"Optional HH:mm local source time or now"},"statistic":{"type":"string","enum":["price","min","max","average","all"],"description":"Which value to return. Defaults to all."},"source":{"type":"string","enum":["auto","nordpool","ote"],"description":"Optional source override. Defaults to auto; CZ/OTE routes to OTE."},"time_resolution":{"type":"string","enum":["PT15M","PT60M"],"description":"OTE only. Defaults to PT15M."}},"required":["area","date"]})"}};
 
     const auto webpage_tool_calls = std::make_shared<int>(0);
     const auto video_tool_calls = std::make_shared<int>(0);
@@ -553,8 +553,8 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         co_return co_await calculation_service.calculate_with_bc(expression, scale);
       }
 
-      if (tool_name == "get_nordpool_spot_price") {
-        NordPoolService::Request request;
+      if (tool_name == "get_spot_price") {
+        SpotPriceService::Request request;
         request.statistic = "all";
         try {
           Json args = Json::parse(arguments_json);
@@ -570,6 +570,12 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
           if (args.contains("statistic") && args["statistic"].is_string()) {
             request.statistic = args["statistic"].get<std::string>();
           }
+          if (args.contains("source") && args["source"].is_string()) {
+            request.source = args["source"].get<std::string>();
+          }
+          if (args.contains("time_resolution") && args["time_resolution"].is_string()) {
+            request.time_resolution = args["time_resolution"].get<std::string>();
+          }
         } catch (...) {
           co_return "Tool error: invalid tool arguments JSON.";
         }
@@ -581,7 +587,7 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
           request.date = "today";
         }
 
-        const auto result = nord_pool_service.lookup(request);
+        const auto result = spot_price_service.lookup(request);
         if (!result.ok) {
           co_return result.error;
         }

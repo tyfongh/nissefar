@@ -38,7 +38,7 @@ add_executable(${PROJECT_NAME}
   src/WebPageService.cpp
   src/VideoSummaryService.cpp
   src/CalculationService.cpp
-  src/NordPoolService.cpp
+  src/SpotPriceService.cpp
   src/DiffUtil.cpp
   src/Utf8Display.cpp
   src/Formatting.cpp
@@ -145,26 +145,26 @@ set_target_properties(analytics_query_tests PROPERTIES
 
 add_test(NAME analytics_query_tests COMMAND analytics_query_tests)
 
-add_executable(nord_pool_service_tests
-  tests/NordPoolServiceTests.cpp
-  src/NordPoolService.cpp
+add_executable(spot_price_service_tests
+  tests/SpotPriceServiceTests.cpp
+  src/SpotPriceService.cpp
   src/HttpClient.cpp
 )
 
-target_include_directories(nord_pool_service_tests PRIVATE
+target_include_directories(spot_price_service_tests PRIVATE
   include/
 )
 
-target_link_libraries(nord_pool_service_tests
+target_link_libraries(spot_price_service_tests
   CURL::libcurl
 )
 
-set_target_properties(nord_pool_service_tests PROPERTIES
+set_target_properties(spot_price_service_tests PROPERTIES
   CXX_STANDARD 20
   CXX_STANDARD_REQUIRED ON
 )
 
-add_test(NAME nord_pool_service_tests COMMAND nord_pool_service_tests)
+add_test(NAME spot_price_service_tests COMMAND spot_price_service_tests)
 
 add_executable(html_text_extract_tests
   tests/HtmlTextExtractTests.cpp

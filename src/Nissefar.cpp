@@ -6,7 +6,7 @@
 #include <GoogleDocsService.h>
 #include <LlmService.h>
 #include <Nissefar.h>
-#include <NordPoolService.h>
+#include <SpotPriceService.h>
 #include <VideoSummaryService.h>
 #include <WebPageService.h>
 #include <YoutubeService.h>
@@ -78,11 +78,11 @@ Nissefar::Nissefar() {
   video_summary_service =
       std::make_unique<VideoSummaryService>(config, *bot);
   calculation_service = std::make_unique<CalculationService>(*bot);
-  nord_pool_service = std::make_unique<NordPoolService>();
+  spot_price_service = std::make_unique<SpotPriceService>();
   discord_event_service = std::make_unique<DiscordEventService>(
       config, *bot, *llm_service, *google_docs_service, *web_page_service,
       *youtube_service, *video_summary_service, *calculation_service,
-      *nord_pool_service);
+      *spot_price_service);
 
   bot->log(dpp::ll_info, "Bot initialized");
 }
