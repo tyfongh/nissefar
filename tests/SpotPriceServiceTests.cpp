@@ -125,6 +125,12 @@ void test_ote_60min_reference() {
   assert(result.payload["period_count"] == 1);
 }
 
+void test_local_date_supports_tomorrow_offset() {
+  const auto now = utc(2026, 6, 22, 12, 0);
+  assert(SpotPriceService::local_date(now, "Europe/Prague", 1) == "2026-06-23");
+  assert(SpotPriceService::local_date(now, "Europe/Oslo", 1) == "2026-06-23");
+}
+
 } // namespace
 
 int main() {
@@ -132,6 +138,7 @@ int main() {
   test_nord_pool_average_without_time();
   test_ote_price_lookup_by_prague_time();
   test_ote_60min_reference();
+  test_local_date_supports_tomorrow_offset();
   std::cout << "SpotPriceService tests passed\n";
   return 0;
 }

@@ -366,6 +366,8 @@ SpotPriceService::LookupResult SpotPriceService::lookup(const Request &request) 
 
   if (normalized.date == "today") {
     normalized.date = local_date(std::chrono::system_clock::now(), timezone);
+  } else if (normalized.date == "tomorrow") {
+    normalized.date = local_date(std::chrono::system_clock::now(), timezone, 1);
   } else if (normalized.date == "yesterday") {
     normalized.date = local_date(std::chrono::system_clock::now(), timezone, -1);
   }
@@ -374,7 +376,7 @@ SpotPriceService::LookupResult SpotPriceService::lookup(const Request &request) 
     return {false, "Tool error: invalid or missing area code.", Json::object()};
   }
   if (!is_valid_date(normalized.date)) {
-    return {false, "Tool error: date must be today, yesterday, or yyyy-MM-dd.", Json::object()};
+    return {false, "Tool error: date must be today, tomorrow, yesterday, or yyyy-MM-dd.", Json::object()};
   }
 
   if (wants_ote) {
@@ -458,7 +460,7 @@ SpotPriceService::LookupResult SpotPriceService::lookup_ote_from_json(
   normalized.time_resolution = uppercase_ascii(normalized.time_resolution.empty() ? "PT15M" : normalized.time_resolution);
 
   if (!is_valid_date(normalized.date)) {
-    return {false, "Tool error: date must be today, yesterday, or yyyy-MM-dd.", Json::object()};
+    return {false, "Tool error: date must be today, tomorrow, yesterday, or yyyy-MM-dd.", Json::object()};
   }
   if (normalized.time_resolution != "PT15M" && normalized.time_resolution != "PT60M") {
     return {false, "Tool error: OTE time_resolution must be PT15M or PT60M.", Json::object()};
