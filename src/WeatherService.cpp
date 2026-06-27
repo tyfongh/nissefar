@@ -334,18 +334,20 @@ WeatherService::LookupResult WeatherService::lookup_from_json(
 
 WeatherService::LookupResult WeatherService::lookup(const Request &request) const {
   GeocodingService::Location location;
-  if (request.latitude.has_value() && request.longitude.has_value()) {
+  if (!request.location.empty()) {
+    const auto geocoded = geocoding_service.lookup(request.location);
+    if (!geocoded.ok || !geocoded.location.has_value()) {
+      return {.ok = false, .error = geocoded.error};
+    }
+    location = *geocoded.location;
+  } else if (request.latitude.has_value() && request.longitude.has_value()) {
     location = {.query = request.location,
                 .display_name = request.location.empty() ? "custom coordinates"
                                                         : request.location,
                 .latitude = *request.latitude,
                 .longitude = *request.longitude};
   } else {
-    const auto geocoded = geocoding_service.lookup(request.location);
-    if (!geocoded.ok || !geocoded.location.has_value()) {
-      return {.ok = false, .error = geocoded.error};
-    }
-    location = *geocoded.location;
+    return {.ok = false, .error = "Tool error: missing required argument 'location'."};
   }
 
   const std::string path = std::format("/weatherapi/locationforecast/2.0/compact?lat={:.5f}&lon={:.5f}",

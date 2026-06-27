@@ -457,8 +457,8 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
          "Get day-ahead spot electricity price data in EUR/MWh. Use Nord Pool for area codes such as NO2, NO1, SE3, DK1, FI, GER. Use CZ/OTE for Czech data; today/tomorrow PT15M Czech data comes from spotovaelektrina.cz, while PT60M or older explicit dates may use OTE fallback. Dates/times use Europe/Oslo for Nord Pool and Europe/Prague for CZ. For 'right now', pass date='today', time='now', statistic='price' or 'all'. For tomorrow, pass date='tomorrow'. For daily average/min/max, omit time and pass statistic='average', 'min', or 'max'. For full-day CSV/table requests, pass statistic='table' and format the returned periods array. CZ supports PT15M by default and PT60M through OTE fallback; use PT60M for hourly CZ tables.",
            R"({"type":"object","properties":{"area":{"type":"string","description":"Delivery area code. Use Nord Pool codes like NO2 or GER, or CZ/OTE for Czech data."},"date":{"type":"string","description":"today, tomorrow, yesterday, or yyyy-MM-dd in the selected source timezone"},"time":{"type":"string","description":"Optional HH:mm local source time or now"},"statistic":{"type":"string","enum":["price","min","max","average","all","table"],"description":"Which value to return. Use table for full-day period lists/CSV. Defaults to all."},"source":{"type":"string","enum":["auto","nordpool","ote","spotovaelektrina","cz"],"description":"Optional source override. Defaults to auto; CZ/OTE routes to Czech data."},"time_resolution":{"type":"string","enum":["PT15M","PT60M"],"description":"CZ only. Defaults to PT15M; use PT60M for hourly CZ table requests."}},"required":["area","date"]})"},
         {"get_weather_forecast",
-         "Get a weather forecast from Yr/MET for a named place or explicit coordinates. Use this for questions like 'How will the weather be in Oslo tomorrow?' The tool geocodes place names when needed, then returns structured forecast JSON with temperature, precipitation, wind, symbols, and optional hourly/table periods. Dates and named times are interpreted in Europe/Oslo.",
-         R"({"type":"object","properties":{"location":{"type":"string","description":"Place name to geocode, e.g. Oslo, Prague, London. Optional if lat and lon are supplied."},"lat":{"type":"number","description":"Latitude. If supplied together with lon, geocoding is skipped."},"lon":{"type":"number","description":"Longitude. If supplied together with lat, geocoding is skipped."},"date":{"type":"string","description":"today, tomorrow, yesterday, or yyyy-MM-dd. Defaults to today."},"time":{"type":"string","description":"Optional HH:mm, now, morning, afternoon, evening, or night. Returns the nearest selected_period."},"detail":{"type":"string","enum":["summary","hourly","table"],"description":"summary returns daily aggregates; hourly/table also include periods. Defaults to summary."}},"required":[]})"}};
+         "Get a weather forecast from Yr/MET for a named place. Use this for questions like 'How will the weather be in Oslo tomorrow?' Always pass the requested place name in location; the tool geocodes it and returns structured forecast JSON with temperature, precipitation, wind, symbols, and optional hourly/table periods. Dates and named times are interpreted in Europe/Oslo.",
+         R"({"type":"object","properties":{"location":{"type":"string","description":"Place name to geocode, e.g. Oslo, Hidra, Praha, London."},"date":{"type":"string","description":"today, tomorrow, yesterday, or yyyy-MM-dd. Defaults to today."},"time":{"type":"string","description":"Optional HH:mm, now, morning, afternoon, evening, or night. Returns the nearest selected_period."},"detail":{"type":"string","enum":["summary","hourly","table"],"description":"summary returns daily aggregates; hourly/table also include periods. Defaults to summary."}},"required":["location"]})"}};
 
     const auto webpage_tool_calls = std::make_shared<int>(0);
     const auto video_tool_calls = std::make_shared<int>(0);
@@ -609,12 +609,6 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
           if (args.contains("location") && args["location"].is_string()) {
             request.location = args["location"].get<std::string>();
           }
-          if (args.contains("lat") && args["lat"].is_number()) {
-            request.latitude = args["lat"].get<double>();
-          }
-          if (args.contains("lon") && args["lon"].is_number()) {
-            request.longitude = args["lon"].get<double>();
-          }
           if (args.contains("date") && args["date"].is_string()) {
             request.date = args["date"].get<std::string>();
           }
@@ -631,9 +625,8 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
           co_return "Tool error: invalid tool arguments JSON.";
         }
 
-        if ((!request.latitude.has_value() || !request.longitude.has_value()) &&
-            request.location.empty()) {
-          co_return "Tool error: provide either 'location' or both 'lat' and 'lon'.";
+        if (request.location.empty()) {
+          co_return "Tool error: missing required argument 'location'.";
         }
 
         const auto result = weather_service.lookup(request);
