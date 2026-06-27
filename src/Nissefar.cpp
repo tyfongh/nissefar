@@ -3,12 +3,14 @@
 #include <DiscordEventService.h>
 #include <CalculationService.h>
 #include <ChatGptAuth.h>
+#include <GeocodingService.h>
 #include <GoogleDocsService.h>
 #include <LlmService.h>
 #include <Nissefar.h>
 #include <SpotPriceService.h>
 #include <VideoSummaryService.h>
 #include <WebPageService.h>
+#include <WeatherService.h>
 #include <YoutubeService.h>
 #include <dpp/misc-enum.h>
 #include <chrono>
@@ -79,10 +81,12 @@ Nissefar::Nissefar() {
       std::make_unique<VideoSummaryService>(config, *bot);
   calculation_service = std::make_unique<CalculationService>(*bot);
   spot_price_service = std::make_unique<SpotPriceService>();
+  geocoding_service = std::make_unique<GeocodingService>();
+  weather_service = std::make_unique<WeatherService>(*geocoding_service);
   discord_event_service = std::make_unique<DiscordEventService>(
       config, *bot, *llm_service, *google_docs_service, *web_page_service,
       *youtube_service, *video_summary_service, *calculation_service,
-      *spot_price_service);
+      *spot_price_service, *weather_service);
 
   bot->log(dpp::ll_info, "Bot initialized");
 }

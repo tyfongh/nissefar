@@ -18,6 +18,7 @@ class YoutubeService;
 class VideoSummaryService;
 class CalculationService;
 class SpotPriceService;
+class WeatherService;
 
 class DiscordEventService {
 public:
@@ -27,8 +28,9 @@ public:
                       const WebPageService &web_page_service,
                        const YoutubeService &youtube_service,
                        const VideoSummaryService &video_summary_service,
-                        const CalculationService &calculation_service,
-                        const SpotPriceService &spot_price_service);
+                         const CalculationService &calculation_service,
+                         const SpotPriceService &spot_price_service,
+                         const WeatherService &weather_service);
 
   dpp::task<void> handle_message(const dpp::message_create_t &event);
   dpp::task<void> handle_message_update(const dpp::message_update_t &event);
@@ -53,6 +55,7 @@ private:
   const VideoSummaryService &video_summary_service;
   const CalculationService &calculation_service;
   const SpotPriceService &spot_price_service;
+  const WeatherService &weather_service;
   bool is_rate_limited(dpp::snowflake user_id) const;
 
   mutable std::mutex heavy_tool_mutex;

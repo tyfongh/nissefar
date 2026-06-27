@@ -11,6 +11,7 @@
 #include <VideoSummaryService.h>
 #include <YoutubeService.h>
 #include <SpotPriceService.h>
+#include <WeatherService.h>
 
 #include <chrono>
 #include <algorithm>
@@ -221,13 +222,14 @@ DiscordEventService::DiscordEventService(
     const YoutubeService &youtube_service,
     const VideoSummaryService &video_summary_service,
     const CalculationService &calculation_service,
-    const SpotPriceService &spot_price_service)
+    const SpotPriceService &spot_price_service,
+    const WeatherService &weather_service)
     : config(config), bot(bot), llm_service(llm_service),
       google_docs_service(google_docs_service),
       web_page_service(web_page_service), youtube_service(youtube_service),
       video_summary_service(video_summary_service),
       calculation_service(calculation_service),
-      spot_price_service(spot_price_service) {}
+      spot_price_service(spot_price_service), weather_service(weather_service) {}
 
 std::string
 DiscordEventService::format_message_history(dpp::snowflake channel_id) const {
@@ -453,7 +455,10 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
           R"({"type":"object","properties":{"expression":{"type":"string","description":"Mathematical expression to evaluate"},"scale":{"type":"integer","description":"Optional decimal precision (0-100). Defaults to 10."}},"required":["expression"]})"},
         {"get_spot_price",
          "Get day-ahead spot electricity price data in EUR/MWh. Use Nord Pool for area codes such as NO2, NO1, SE3, DK1, FI, GER. Use CZ/OTE for Czech data; today/tomorrow PT15M Czech data comes from spotovaelektrina.cz, while PT60M or older explicit dates may use OTE fallback. Dates/times use Europe/Oslo for Nord Pool and Europe/Prague for CZ. For 'right now', pass date='today', time='now', statistic='price' or 'all'. For tomorrow, pass date='tomorrow'. For daily average/min/max, omit time and pass statistic='average', 'min', or 'max'. For full-day CSV/table requests, pass statistic='table' and format the returned periods array. CZ supports PT15M by default and PT60M through OTE fallback; use PT60M for hourly CZ tables.",
-          R"({"type":"object","properties":{"area":{"type":"string","description":"Delivery area code. Use Nord Pool codes like NO2 or GER, or CZ/OTE for Czech data."},"date":{"type":"string","description":"today, tomorrow, yesterday, or yyyy-MM-dd in the selected source timezone"},"time":{"type":"string","description":"Optional HH:mm local source time or now"},"statistic":{"type":"string","enum":["price","min","max","average","all","table"],"description":"Which value to return. Use table for full-day period lists/CSV. Defaults to all."},"source":{"type":"string","enum":["auto","nordpool","ote","spotovaelektrina","cz"],"description":"Optional source override. Defaults to auto; CZ/OTE routes to Czech data."},"time_resolution":{"type":"string","enum":["PT15M","PT60M"],"description":"CZ only. Defaults to PT15M; use PT60M for hourly CZ table requests."}},"required":["area","date"]})"}};
+           R"({"type":"object","properties":{"area":{"type":"string","description":"Delivery area code. Use Nord Pool codes like NO2 or GER, or CZ/OTE for Czech data."},"date":{"type":"string","description":"today, tomorrow, yesterday, or yyyy-MM-dd in the selected source timezone"},"time":{"type":"string","description":"Optional HH:mm local source time or now"},"statistic":{"type":"string","enum":["price","min","max","average","all","table"],"description":"Which value to return. Use table for full-day period lists/CSV. Defaults to all."},"source":{"type":"string","enum":["auto","nordpool","ote","spotovaelektrina","cz"],"description":"Optional source override. Defaults to auto; CZ/OTE routes to Czech data."},"time_resolution":{"type":"string","enum":["PT15M","PT60M"],"description":"CZ only. Defaults to PT15M; use PT60M for hourly CZ table requests."}},"required":["area","date"]})"},
+        {"get_weather_forecast",
+         "Get a weather forecast from Yr/MET for a named place or explicit coordinates. Use this for questions like 'How will the weather be in Oslo tomorrow?' The tool geocodes place names when needed, then returns structured forecast JSON with temperature, precipitation, wind, symbols, and optional hourly/table periods. Dates and named times are interpreted in Europe/Oslo.",
+         R"({"type":"object","properties":{"location":{"type":"string","description":"Place name to geocode, e.g. Oslo, Prague, London. Optional if lat and lon are supplied."},"lat":{"type":"number","description":"Latitude. If supplied together with lon, geocoding is skipped."},"lon":{"type":"number","description":"Longitude. If supplied together with lat, geocoding is skipped."},"date":{"type":"string","description":"today, tomorrow, yesterday, or yyyy-MM-dd. Defaults to today."},"time":{"type":"string","description":"Optional HH:mm, now, morning, afternoon, evening, or night. Returns the nearest selected_period."},"detail":{"type":"string","enum":["summary","hourly","table"],"description":"summary returns daily aggregates; hourly/table also include periods. Defaults to summary."}},"required":[]})"}};
 
     const auto webpage_tool_calls = std::make_shared<int>(0);
     const auto video_tool_calls = std::make_shared<int>(0);
@@ -591,6 +596,47 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         }
 
         const auto result = spot_price_service.lookup(request);
+        if (!result.ok) {
+          co_return result.error;
+        }
+        co_return result.payload.dump();
+      }
+
+      if (tool_name == "get_weather_forecast") {
+        WeatherService::Request request;
+        try {
+          Json args = Json::parse(arguments_json);
+          if (args.contains("location") && args["location"].is_string()) {
+            request.location = args["location"].get<std::string>();
+          }
+          if (args.contains("lat") && args["lat"].is_number()) {
+            request.latitude = args["lat"].get<double>();
+          }
+          if (args.contains("lon") && args["lon"].is_number()) {
+            request.longitude = args["lon"].get<double>();
+          }
+          if (args.contains("date") && args["date"].is_string()) {
+            request.date = args["date"].get<std::string>();
+          }
+          if (args.contains("time") && args["time"].is_string()) {
+            const auto time = args["time"].get<std::string>();
+            if (!time.empty()) {
+              request.time = time;
+            }
+          }
+          if (args.contains("detail") && args["detail"].is_string()) {
+            request.detail = args["detail"].get<std::string>();
+          }
+        } catch (...) {
+          co_return "Tool error: invalid tool arguments JSON.";
+        }
+
+        if ((!request.latitude.has_value() || !request.longitude.has_value()) &&
+            request.location.empty()) {
+          co_return "Tool error: provide either 'location' or both 'lat' and 'lon'.";
+        }
+
+        const auto result = weather_service.lookup(request);
         if (!result.ok) {
           co_return result.error;
         }

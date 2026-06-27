@@ -39,6 +39,8 @@ add_executable(${PROJECT_NAME}
   src/VideoSummaryService.cpp
   src/CalculationService.cpp
   src/SpotPriceService.cpp
+  src/GeocodingService.cpp
+  src/WeatherService.cpp
   src/DiffUtil.cpp
   src/Utf8Display.cpp
   src/Formatting.cpp
@@ -165,6 +167,28 @@ set_target_properties(spot_price_service_tests PROPERTIES
 )
 
 add_test(NAME spot_price_service_tests COMMAND spot_price_service_tests)
+
+add_executable(weather_service_tests
+  tests/WeatherServiceTests.cpp
+  src/WeatherService.cpp
+  src/GeocodingService.cpp
+  src/HttpClient.cpp
+)
+
+target_include_directories(weather_service_tests PRIVATE
+  include/
+)
+
+target_link_libraries(weather_service_tests
+  CURL::libcurl
+)
+
+set_target_properties(weather_service_tests PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
+)
+
+add_test(NAME weather_service_tests COMMAND weather_service_tests)
 
 add_executable(html_text_extract_tests
   tests/HtmlTextExtractTests.cpp

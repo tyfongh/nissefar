@@ -18,6 +18,8 @@ class WebPageService;
 class VideoSummaryService;
 class CalculationService;
 class SpotPriceService;
+class GeocodingService;
+class WeatherService;
 
 class Nissefar {
 private:
@@ -34,6 +36,8 @@ private:
   std::unique_ptr<VideoSummaryService> video_summary_service;
   std::unique_ptr<CalculationService> calculation_service;
   std::unique_ptr<SpotPriceService> spot_price_service;
+  std::unique_ptr<GeocodingService> geocoding_service;
+  std::unique_ptr<WeatherService> weather_service;
 
   // Methods
 
