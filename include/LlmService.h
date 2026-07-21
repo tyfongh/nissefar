@@ -35,11 +35,11 @@ public:
   std::optional<SentimentEvaluation>
   evaluate_sentiment(const Message &message) const;
 
-  dpp::task<std::string>
+  dpp::task<LlmGenerationResult>
   generate_text_with_tools(const std::string &prompt,
                            const LlmImages &imagelist,
                            const std::vector<ToolDefinition> &available_tools,
-                           const std::function<dpp::task<std::string>(
+                           const std::function<dpp::task<LlmToolResult>(
                                const std::string &, const std::string &)>
                                &tool_executor) const;
 

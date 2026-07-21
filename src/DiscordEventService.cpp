@@ -27,87 +27,6 @@
 
 namespace {
 
-std::string ascii_lowercase(std::string value) {
-  std::ranges::transform(value, value.begin(), [](unsigned char ch) {
-    return static_cast<char>(std::tolower(ch));
-  });
-  return value;
-}
-
-std::string trim_whitespace(std::string value) {
-  const auto first = value.find_first_not_of(" \t\r\n");
-  if (first == std::string::npos) {
-    return {};
-  }
-  const auto last = value.find_last_not_of(" \t\r\n");
-  return value.substr(first, last - first + 1);
-}
-
-std::string truncate_for_log(std::string value, std::size_t max_size) {
-  if (value.size() <= max_size) {
-    return value;
-  }
-
-  value.resize(max_size);
-  value += "...";
-  return value;
-}
-
-std::string image_generation_prompt_from_message(const dpp::message &message,
-                                                 dpp::snowflake bot_id) {
-  std::string prompt = message.content;
-
-  const std::string mention = std::format("<@{}>", bot_id.str());
-  const std::string nick_mention = std::format("<@!{}>", bot_id.str());
-
-  std::size_t pos = 0;
-  while ((pos = prompt.find(mention, pos)) != std::string::npos) {
-    prompt.erase(pos, mention.size());
-  }
-  pos = 0;
-  while ((pos = prompt.find(nick_mention, pos)) != std::string::npos) {
-    prompt.erase(pos, nick_mention.size());
-  }
-
-  prompt = trim_whitespace(prompt);
-  if (prompt.size() > 1500) {
-    prompt.resize(1500);
-    prompt = trim_whitespace(prompt);
-  }
-
-  if (prompt.empty()) {
-    prompt = "Generate an image that matches the user's request.";
-  }
-
-  return prompt;
-}
-
-bool prompt_requests_image_generation(const std::string &content,
-                                      bool has_input_images) {
-  const std::string lower = ascii_lowercase(content);
-
-  if (lower.find("draw ") != std::string::npos ||
-      lower.find("generate an image") != std::string::npos ||
-      lower.find("generate a picture") != std::string::npos ||
-      lower.find("create an image") != std::string::npos ||
-      lower.find("create a picture") != std::string::npos ||
-      lower.find("make an image") != std::string::npos ||
-      lower.find("make a picture") != std::string::npos ||
-      lower.find("render an image") != std::string::npos) {
-    return true;
-  }
-
-  if (has_input_images &&
-      (lower.find("edit this image") != std::string::npos ||
-       lower.find("edit this picture") != std::string::npos ||
-       lower.find("make this image") != std::string::npos ||
-       lower.find("change this image") != std::string::npos)) {
-    return true;
-  }
-
-  return false;
-}
-
 std::string extension_for_mime_type(const std::string &mime_type) {
   if (mime_type == "image/jpeg") {
     return "jpg";
@@ -425,6 +344,9 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
         "- Good: ⚡\n";
 
     const std::vector<LlmService::ToolDefinition> available_tools = {
+        {"generate_image",
+         "Generate or edit an image only when the user explicitly requests visual creation or modification. Convert the user's request and relevant conversation context into a detailed, standalone visual specification. Resolve pronouns and references; describe the subject, composition, environment, style, lighting, colors, and any required text. Do not include chat metadata or phrases such as 'the user asked'. Set use_input_images only when attached images should be edited or used as visual references.",
+         R"({"type":"object","properties":{"prompt":{"type":"string","description":"Detailed, self-contained visual prompt for the image generator."},"use_input_images":{"type":"boolean","description":"Whether attached images should be supplied as edit or reference inputs."}},"required":["prompt","use_input_images"]})"},
         {"get_banana_data", "Get EV trunk size dataset from Banana sheet", ""},
         {"get_weight_data", "Get EV vehicle weight dataset from Weight sheet", ""},
         {"get_acceleration_data",
@@ -460,16 +382,101 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
          "Get a weather forecast from Yr/MET for a named place. Use this for questions like 'How will the weather be in Oslo tomorrow?' Always pass the requested place name in location; the tool geocodes it and returns structured forecast JSON with temperature, precipitation, wind, symbols, and optional hourly/table periods. Dates and named times are interpreted in Europe/Oslo.",
          R"({"type":"object","properties":{"location":{"type":"string","description":"Place name to geocode, e.g. Oslo, Hidra, Praha, London."},"date":{"type":"string","description":"today, tomorrow, yesterday, or yyyy-MM-dd. Defaults to today."},"time":{"type":"string","description":"Optional HH:mm, now, morning, afternoon, evening, or night. Returns the nearest selected_period."},"detail":{"type":"string","enum":["summary","hourly","table"],"description":"summary returns daily aggregates; hourly/table also include periods. Defaults to summary."}},"required":["location"]})"}};
 
+    const auto image_tool_calls = std::make_shared<int>(0);
     const auto webpage_tool_calls = std::make_shared<int>(0);
     const auto video_tool_calls = std::make_shared<int>(0);
     const auto analytics_tool_calls = std::make_shared<int>(0);
 
     const auto execute_tool =
-        [this, webpage_tool_calls, video_tool_calls,
-         analytics_tool_calls, request_channel_id,
-         request_server_id](const std::string &tool_name,
-                              const std::string &arguments_json)
-        -> dpp::task<std::string> {
+        [this, image_tool_calls, webpage_tool_calls, video_tool_calls,
+         analytics_tool_calls, request_channel_id, request_server_id,
+         &imagelist](const std::string &tool_name,
+                     const std::string &arguments_json)
+        -> dpp::task<LlmToolResult> {
+
+      if (tool_name == "generate_image") {
+        auto image_error = [](std::string message) {
+          LlmToolResult result(std::move(message));
+          result.stop_tool_loop = true;
+          return result;
+        };
+
+        if (*image_tool_calls >= 1) {
+          co_return image_error(
+              "Tool error: only one image generation is allowed per request.");
+        }
+
+        std::string image_prompt;
+        bool use_input_images = false;
+        bool has_use_input_images = false;
+        try {
+          const Json args = Json::parse(arguments_json);
+          if (args.contains("prompt") && args["prompt"].is_string()) {
+            image_prompt = args["prompt"].get<std::string>();
+          }
+          if (args.contains("use_input_images") &&
+              args["use_input_images"].is_boolean()) {
+            use_input_images = args["use_input_images"].get<bool>();
+            has_use_input_images = true;
+          }
+        } catch (...) {
+          co_return image_error("Tool error: invalid tool arguments JSON.");
+        }
+
+        if (image_prompt.empty()) {
+          co_return image_error("Tool error: missing required argument 'prompt'.");
+        }
+        if (!has_use_input_images) {
+          co_return image_error(
+              "Tool error: missing required boolean argument 'use_input_images'.");
+        }
+        if (image_prompt.size() > 6000) {
+          co_return image_error(
+              "Tool error: image prompt is too long (maximum 6000 bytes).");
+        }
+        if (use_input_images && imagelist.empty()) {
+          co_return image_error(
+              "Tool error: use_input_images was requested, but no input images are attached.");
+        }
+
+        ++*image_tool_calls;
+        const LlmImages no_images;
+        const auto generated_image = llm_service.generate_image(
+            image_prompt, use_input_images ? imagelist : no_images);
+        if (!generated_image.has_value()) {
+          co_return image_error(
+              "Tool error: image generation failed. No image artifact was created.");
+        }
+
+        std::string image_bytes = decode_base64(generated_image->base64_data);
+        if (image_bytes.empty()) {
+          bot.log(dpp::ll_error,
+                  "Codex image generation returned invalid base64 data.");
+          co_return image_error(
+              "Tool error: the generated image could not be decoded. No image artifact was created.");
+        }
+
+        const std::string artifact_id = generated_image->id.empty()
+                                            ? "generated-image-1"
+                                            : generated_image->id;
+        const std::string extension =
+            extension_for_mime_type(generated_image->mime_type);
+
+        LlmToolResult result;
+        result.output =
+            Json{{"ok", true},
+                 {"artifact_id", artifact_id},
+                 {"mime_type", generated_image->mime_type}}
+                .dump();
+        result.artifacts.push_back(
+            LlmArtifact{.id = artifact_id,
+                        .filename = std::format("generated-image.{}", extension),
+                        .mime_type = generated_image->mime_type,
+                        .data = std::move(image_bytes),
+                        .description = generated_image->revised_prompt});
+        result.stop_tool_loop = true;
+        co_return result;
+      }
 
       static const std::map<std::string, std::string> tool_to_sheet = {
           {"get_banana_data", "Banana"},
@@ -719,38 +726,28 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
     bot.log(dpp::ll_info, prompt);
     bot.log(dpp::ll_info, std::format("Number of images: {}", imagelist.size()));
 
-    if (prompt_requests_image_generation(event.msg.content, !imagelist.empty())) {
-      const std::string image_prompt =
-          image_generation_prompt_from_message(event.msg, bot.me.id);
-      bot.log(dpp::ll_info,
-              std::format("Codex image prompt bytes={} preview='{}'",
-                          image_prompt.size(), truncate_for_log(image_prompt, 200)));
+    auto generation =
+        co_await llm_service.generate_text_with_tools(prompt, imagelist,
+                                                      available_tools,
+                                                      execute_tool);
 
-      const auto generated_image = llm_service.generate_image(image_prompt, imagelist);
-      if (!generated_image.has_value()) {
-        event.reply("I had trouble generating that image right now.", true);
-      } else {
-        const std::string image_bytes = decode_base64(generated_image->base64_data);
-        if (image_bytes.empty()) {
-          bot.log(dpp::ll_error, "Codex image generation returned invalid base64 data.");
-          event.reply("I generated an image, but failed to decode it for upload.", true);
-          co_return;
-        }
-
-        const std::string extension = extension_for_mime_type(generated_image->mime_type);
-        dpp::message response(event.msg.channel_id, "Generated image:");
-        response.add_file(std::format("codex-image.{}", extension),
-                          image_bytes,
-                          generated_image->mime_type);
-        event.reply(response, true);
-      }
-    } else {
-      auto tool_answer =
-          co_await llm_service.generate_text_with_tools(prompt, imagelist,
-                                                        available_tools,
-                                                        execute_tool);
-      event.reply(tool_answer, true);
+    if (generation.text.empty()) {
+      generation.text = generation.artifacts.empty() ? "I had trouble finishing that request right now."
+                                                     : "Generated image:";
     }
+
+    dpp::message response(event.msg.channel_id, generation.text);
+    for (const auto &artifact : generation.artifacts) {
+      if (artifact.data.empty() || artifact.filename.empty() ||
+          artifact.mime_type.empty()) {
+        bot.log(dpp::ll_warning,
+                std::format("Skipping invalid artifact id='{}' filename='{}'",
+                            artifact.id, artifact.filename));
+        continue;
+      }
+      response.add_file(artifact.filename, artifact.data, artifact.mime_type);
+    }
+    event.reply(response, true);
   }
 
   co_await handle_carlbot_video(event);
@@ -843,7 +840,7 @@ dpp::task<void> DiscordEventService::run_summary_queue(dpp::snowflake channel_id
     const auto execute_summary_tool =
         [this, video_tool_calls](const std::string &tool_name,
                                  const std::string &arguments_json)
-        -> dpp::task<std::string> {
+        -> dpp::task<LlmToolResult> {
       if (tool_name != "summarize_video")
         co_return std::format("Tool error: unknown tool '{}'", tool_name);
 
@@ -872,7 +869,9 @@ dpp::task<void> DiscordEventService::run_summary_queue(dpp::snowflake channel_id
     auto summary = co_await llm_service.generate_text_with_tools(
         prompt, LlmImages{}, summary_tools, execute_summary_tool);
 
-    dpp::message msg(channel_id, std::format("Summarization of the video:\n||{}||", summary));
+    dpp::message msg(
+        channel_id,
+        std::format("Summarization of the video:\n||{}||", summary.text));
     bot.message_create(msg);
   }
 }

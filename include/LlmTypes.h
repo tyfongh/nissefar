@@ -4,6 +4,7 @@
 #include <Json.h>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 struct LlmImage {
@@ -30,6 +31,29 @@ struct LlmGeneratedImage {
   std::string mime_type;
   std::string base64_data;
   std::string revised_prompt;
+};
+
+struct LlmArtifact {
+  std::string id;
+  std::string filename;
+  std::string mime_type;
+  std::string data;
+  std::string description;
+};
+
+struct LlmToolResult {
+  std::string output;
+  std::vector<LlmArtifact> artifacts;
+  bool stop_tool_loop{false};
+
+  LlmToolResult() = default;
+  LlmToolResult(std::string value) : output(std::move(value)) {}
+  LlmToolResult(const char *value) : output(value) {}
+};
+
+struct LlmGenerationResult {
+  std::string text;
+  std::vector<LlmArtifact> artifacts;
 };
 
 struct LlmResponse {

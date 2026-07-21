@@ -1,5 +1,6 @@
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <pqxx/pqxx>
 #include <pqxx/zview.hxx>
 

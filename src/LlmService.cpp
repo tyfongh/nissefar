@@ -287,7 +287,10 @@ LlmService::generate_image(const std::string &prompt,
   }
 
   const CodexRequest request{.model = config.chatgpt_model,
-                             .instructions = "Generate or edit an image that matches the user's request.",
+                             .instructions =
+                                 "Generate or edit an image from the provided standalone "
+                                 "visual specification. Treat it as the complete image "
+                                 "brief; do not request conversation context.",
                              .messages = {LlmMessage{.role = "user",
                                                      .content = prompt,
                                                      .images = imagelist}},
@@ -322,19 +325,16 @@ LlmService::generate_image(const std::string &prompt,
   }
 }
 
-dpp::task<std::string> LlmService::generate_text_with_tools(
+dpp::task<LlmGenerationResult> LlmService::generate_text_with_tools(
     const std::string &prompt, const LlmImages &imagelist,
     const std::vector<LlmService::ToolDefinition> &available_tools,
-    const std::function<dpp::task<std::string>(const std::string &,
-                                               const std::string &)>
+    const std::function<dpp::task<LlmToolResult>(const std::string &,
+                                                 const std::string &)>
         &tool_executor) const {
-  if (!imagelist.empty()) {
-    co_return generate_text(prompt, imagelist, GenerationType::TextReply);
-  }
-
   if (!auth_manager) {
     bot.log(dpp::ll_error, "ChatGPT auth manager is not configured.");
-    co_return "Unable to authenticate with ChatGPT right now.";
+    co_return LlmGenerationResult{
+        .text = "Unable to authenticate with ChatGPT right now."};
   }
 
   const auto initial_auth = auth_manager->ensure_valid();
@@ -342,17 +342,19 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
     bot.log(dpp::ll_error,
             std::format("ChatGPT auth failure before tool generation: {}",
                         initial_auth.error));
-    co_return "Unable to authenticate with ChatGPT right now.";
+    co_return LlmGenerationResult{
+        .text = "Unable to authenticate with ChatGPT right now."};
   }
 
   const Json json_tools = codex_tools_from_definitions(available_tools);
   const std::string model = config.chatgpt_model;
   const std::vector<LlmMessage> initial_messages = {
-      LlmMessage{.role = "user", .content = prompt, .images = {}}};
+      LlmMessage{.role = "user", .content = prompt, .images = imagelist}};
   Json accumulated_items = Json::array();
   std::string instruction_suffix;
 
   std::string answer{};
+  std::vector<LlmArtifact> artifacts;
   bool tool_calling_failed = false;
   std::string failure_reason;
   int tool_calls_executed = 0;
@@ -362,6 +364,7 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
   std::size_t last_tool_output_size = 0;
   std::unordered_set<std::string> seen_tool_calls;
   bool analytics_tool_used = false;
+  bool tool_phase_complete = false;
   bool saw_empty_content_without_tool_calls = false;
 
   try {
@@ -378,15 +381,15 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
                                                        instruction_suffix),
                                  .messages = initial_messages,
                                  .input_items = accumulated_items,
-                                 .tools = analytics_tool_used ? Json::array()
+                                 .tools = tool_phase_complete ? Json::array()
                                                               : json_tools};
       bot.log(dpp::ll_info,
               std::format("Codex tool request iteration={} prompt_bytes={} tools={} "
-                          "input_items={} payload_bytes={} analytics_forced_final={}",
+                          "input_items={} payload_bytes={} tool_phase_forced_final={}",
                            iteration + 1, prompt.size(), json_tools.size(),
                            accumulated_items.is_array() ? accumulated_items.size() : 0,
                            request_payload_bytes(request),
-                           analytics_tool_used ? "yes" : "no"));
+                           tool_phase_complete ? "yes" : "no"));
       const auto result = create_codex_response_with_auth_retry(request);
       if (!result.ok()) {
         tool_calling_failed = true;
@@ -445,22 +448,30 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
 
         const std::string tool_key = tool_name + "\n" + arguments_json;
 
-        std::string tool_output;
+        LlmToolResult execution_result;
         if (seen_tool_calls.contains(tool_key)) {
-          tool_output =
+          execution_result.output =
               "Tool error: duplicate tool call blocked in same request. Use the prior result.";
           bot.log(dpp::ll_warning,
                   std::format("Blocked duplicate tool call: {} args={}", tool_name,
                               logged_args));
         } else {
           seen_tool_calls.insert(tool_key);
-          tool_output = co_await tool_executor(tool_name, arguments_json);
+          execution_result = co_await tool_executor(tool_name, arguments_json);
           ++tool_calls_executed;
           if (tool_name == "query_channel_analytics") {
             analytics_tool_used = true;
           }
         }
 
+        if (execution_result.stop_tool_loop) {
+          tool_phase_complete = true;
+        }
+        for (auto &artifact : execution_result.artifacts) {
+          artifacts.push_back(std::move(artifact));
+        }
+
+        const std::string &tool_output = execution_result.output;
         last_tool_output_size = tool_output.size();
         last_tool_output_preview = tool_output;
         if (last_tool_output_preview.size() > 300) {
@@ -487,12 +498,23 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
       }
 
       if (analytics_tool_used) {
+        tool_phase_complete = true;
         bot.log(dpp::ll_info,
                 "Analytics tool result received; forcing final response without tools");
         instruction_suffix =
             "Tool phase is complete. Use the returned analytics result as the final "
             "source of truth. Do not ask to run another query. Provide the final "
             "answer now.";
+      } else if (tool_phase_complete) {
+        bot.log(dpp::ll_info,
+                "Tool requested final response; continuing without tools");
+        instruction_suffix = artifacts.empty()
+            ? "The tool phase is complete. Explain the tool result accurately and "
+              "provide the final answer now. Do not call another tool."
+            : "The requested image has been generated and will be attached to your "
+              "message. Provide a brief final response acknowledging it. Do not "
+              "claim that you cannot attach or display the image, and do not call "
+              "another tool.";
       }
     }
 
@@ -546,12 +568,14 @@ dpp::task<std::string> LlmService::generate_text_with_tools(
       bot.log(dpp::ll_error,
               std::format("Fallback chat after tool-calling failure also failed: {}",
                           e.what()));
-      answer = "I had trouble finishing that request right now.";
+      answer = artifacts.empty() ? "I had trouble finishing that request right now."
+                                 : "Generated image:";
     }
   }
 
   if (answer.length() > 1800)
     answer.resize(1800);
 
-  co_return answer;
+  co_return LlmGenerationResult{.text = std::move(answer),
+                                .artifacts = std::move(artifacts)};
 }
