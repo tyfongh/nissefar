@@ -320,4 +320,41 @@ std::string normalize_plain_text(const std::string &text) {
   return decode_and_collapse_ws(text);
 }
 
+ContentFormat classify_content_type(const std::string &content_type) {
+  const size_t semicolon = content_type.find(';');
+  std::string media_type = content_type.substr(0, semicolon);
+
+  const auto first = std::find_if_not(media_type.begin(), media_type.end(),
+                                      [](unsigned char c) { return std::isspace(c); });
+  const auto last = std::find_if_not(media_type.rbegin(), media_type.rend(),
+                                     [](unsigned char c) { return std::isspace(c); })
+                        .base();
+  media_type = first < last ? std::string(first, last) : std::string{};
+  std::transform(media_type.begin(), media_type.end(), media_type.begin(),
+                 lower_ascii);
+
+  if (media_type == "text/markdown" || media_type == "text/x-markdown") {
+    return ContentFormat::Markdown;
+  }
+  if (media_type.empty() || media_type == "text/html" ||
+      media_type == "application/xhtml+xml") {
+    return ContentFormat::Html;
+  }
+  return ContentFormat::PlainText;
+}
+
+std::string prepare_webpage_text(const std::string &body,
+                                 ContentFormat format) {
+  switch (format) {
+  case ContentFormat::Html:
+    return extract_text_from_html(body);
+  case ContentFormat::Markdown:
+    return body;
+  case ContentFormat::PlainText:
+    return normalize_plain_text(body);
+  }
+
+  return {};
+}
+
 } // namespace html_text_extract

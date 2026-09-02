@@ -364,7 +364,7 @@ DiscordEventService::handle_message(const dpp::message_create_t &event) {
          "Check whether the Strait of Hormuz is currently open according to hormuzstatus.com. Returns structured JSON with status, answer, is_open, label, and detail.",
          ""},
         {"get_webpage_text",
-         "Fetch and extract readable text from a public webpage. Use this when the user asks to summarize or answer questions about a URL.",
+         "Fetch readable content from a public webpage, preferring server-provided Markdown and falling back to HTML extraction. Use this when the user asks to summarize or answer questions about a URL.",
          R"({"type":"object","properties":{"url":{"type":"string","description":"Absolute http/https URL to fetch"}},"required":["url"]})"},
         {"summarize_video",
          "Summarize a public online video URL by transcribing audio and producing a concise summary.",

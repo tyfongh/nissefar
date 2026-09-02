@@ -53,6 +53,41 @@ void test_normalize_plain_text() {
             "collapses whitespace and decodes entities");
 }
 
+void test_classifies_web_content_types() {
+  using html_text_extract::ContentFormat;
+  expect_true(html_text_extract::classify_content_type(
+                  "text/markdown; charset=utf-8") == ContentFormat::Markdown,
+              "recognizes Markdown with parameters");
+  expect_true(html_text_extract::classify_content_type(" TEXT/X-MARKDOWN ") ==
+                  ContentFormat::Markdown,
+              "recognizes legacy Markdown case-insensitively");
+  expect_true(html_text_extract::classify_content_type("text/html") ==
+                  ContentFormat::Html,
+              "recognizes HTML");
+  expect_true(html_text_extract::classify_content_type("") ==
+                  ContentFormat::Html,
+              "treats a missing content type as HTML");
+  expect_true(html_text_extract::classify_content_type("text/plain") ==
+                  ContentFormat::PlainText,
+              "recognizes plain text fallback");
+}
+
+void test_prepares_negotiated_web_content() {
+  using html_text_extract::ContentFormat;
+  const std::string markdown =
+      "# Heading\n\n- one\n- two\n\n[Link](https://example.com)\n";
+  expect_eq(html_text_extract::prepare_webpage_text(
+                markdown, ContentFormat::Markdown),
+            markdown, "preserves Markdown structure");
+  expect_eq(html_text_extract::prepare_webpage_text(
+                "<main><h1>Heading</h1><p>Body</p></main>",
+                ContentFormat::Html),
+            "HeadingBody", "extracts HTML text");
+  expect_eq(html_text_extract::prepare_webpage_text(
+                " one\n  two ", ContentFormat::PlainText),
+            "one two", "normalizes plain text");
+}
+
 void test_handles_large_malformed_html_without_regex() {
   std::string html = "<html><body><script>";
   for (int i = 0; i < 200000; ++i) {
@@ -71,6 +106,8 @@ int main() {
   test_extracts_text_and_skips_heavy_blocks();
   test_extracts_title_case_insensitive();
   test_normalize_plain_text();
+  test_classifies_web_content_types();
+  test_prepares_negotiated_web_content();
   test_handles_large_malformed_html_without_regex();
 
   if (failures != 0) {

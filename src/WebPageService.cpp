@@ -3,18 +3,11 @@
 #include <WebPageService.h>
 #include <UrlSafety.h>
 
-#include <algorithm>
-#include <cctype>
 #include <format>
+#include <map>
 #include <sstream>
 
 namespace {
-
-std::string to_lower(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  return value;
-}
 
 std::string normalize_location_header(const std::string &location,
                                       const url_safety::ParsedUrl &base_url) {
@@ -51,9 +44,13 @@ WebPageService::fetch_webpage_text(const std::string &url) const {
   std::string current_url = url;
   url_safety::ParsedUrl current_parsed = parsed;
   dpp::http_request_completion_t response{};
+  const std::multimap<std::string, std::string> request_headers = {
+      {"Accept",
+       "text/markdown, text/html;q=0.9, text/plain;q=0.8, */*;q=0.1"}};
 
   for (int i = 0; i <= max_redirects; ++i) {
-    response = co_await bot.co_request(current_url, dpp::m_get);
+    response = co_await bot.co_request(current_url, dpp::m_get, "", "text/plain",
+                                       request_headers);
 
     if (response.status == 301 || response.status == 302 || response.status == 303 ||
         response.status == 307 || response.status == 308) {
@@ -99,21 +96,20 @@ WebPageService::fetch_webpage_text(const std::string &url) const {
   std::string content_type;
   auto content_type_it = response.headers.find("content-type");
   if (content_type_it != response.headers.end()) {
-    content_type = to_lower(content_type_it->second);
+    content_type = content_type_it->second;
   }
 
+  const auto content_format =
+      html_text_extract::classify_content_type(content_type);
   std::string title;
-  std::string extracted_text;
-  if (content_type.find("text/html") != std::string::npos ||
-      content_type.empty()) {
+  if (content_format == html_text_extract::ContentFormat::Html) {
     title = html_text_extract::extract_title_from_html(body);
     if (title.size() > 300) {
       title.resize(300);
     }
-    extracted_text = html_text_extract::extract_text_from_html(body);
-  } else {
-    extracted_text = html_text_extract::normalize_plain_text(body);
   }
+  std::string extracted_text =
+      html_text_extract::prepare_webpage_text(body, content_format);
 
   bool truncated = false;
   if (extracted_text.size() > max_output_chars) {
@@ -125,6 +121,17 @@ WebPageService::fetch_webpage_text(const std::string &url) const {
   out << "URL: " << current_url << "\n";
   if (!title.empty()) {
     out << "Title: " << title << "\n";
+  }
+  switch (content_format) {
+  case html_text_extract::ContentFormat::Html:
+    out << "Content format: HTML-derived text\n";
+    break;
+  case html_text_extract::ContentFormat::Markdown:
+    out << "Content format: Markdown\n";
+    break;
+  case html_text_extract::ContentFormat::PlainText:
+    out << "Content format: Plain text\n";
+    break;
   }
   out << "Extracted text:\n" << extracted_text;
   if (truncated) {
